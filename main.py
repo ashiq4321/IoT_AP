@@ -25,8 +25,6 @@ def detect_devices():
         # Only add devices with a MAC address (physical devices)
         if 'mac_address' in device_info:
             devices.append(device_info)
-    
-    print(f"Detected devices: {devices}")  # Add this to ensure devices are detected
     return devices
 
 # Function to populate the table with detected devices
@@ -45,7 +43,6 @@ def populate_table(devices_table, devices):
 
     # Add detected devices to the table
     for idx, device in enumerate(devices, 1):
-        print(f"Adding device {idx} to table...")  # Debugging statement
         tk.Label(devices_table, text=f"Device {idx}").grid(row=idx, column=0, padx=10, pady=5)
         tk.Label(devices_table, text=device['mac_address']).grid(row=idx, column=1, padx=10, pady=5)
         tk.Label(devices_table, text=device.get('ipv4', 'N/A')).grid(row=idx, column=2, padx=10, pady=5)
@@ -57,9 +54,7 @@ def populate_table(devices_table, devices):
 
 # Function to handle the "Detect Devices" button click
 def detect_devices_handler(devices_table):
-    print("Detecting devices...")  # Debugging statement to confirm button press
     devices = detect_devices()  # Detect the devices
-    print(f"Devices Detected: {devices}")  # Print detected devices for debugging
     populate_table(devices_table, devices)  # Populate the table with detected devices
 
 # Main Tkinter UI
