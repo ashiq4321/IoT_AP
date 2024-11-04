@@ -5,6 +5,8 @@ import time
 from datetime import datetime
 from ..network.device_scanner import DeviceScanner
 from typing import List, Dict
+from ..data.device_manager import DeviceManager
+from .device_editor import DeviceEditorDialog
 
 class ModernTable(ttk.Treeview):
     def __init__(self, parent, columns):
@@ -54,6 +56,7 @@ class MainWindow:
         self.root.title("Network Device Monitor")
         self.root.geometry("800x600")
         self.scanner = DeviceScanner()
+        self.device_manager = DeviceManager()
         self.setup_styles()
         self.setup_ui()
         
@@ -137,14 +140,60 @@ class MainWindow:
         table_frame.pack(fill=tk.BOTH, expand=True)
         
         # Create table
-        columns = ('Device Name', 'IP Address', 'MAC Address', 'Status', 'Last Seen')
+        columns = ('Device Name', 'IP Address', 'MAC Address', 'Vendor', 'Model', 'Status', 'Last Seen')
         self.table = ModernTable(table_frame, columns)
         self.table.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
+        
+        # Add double-click binding
+        self.table.bind('<Double-1>', self.edit_device)
         
         # Add scrollbar
         scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.table.yview)
         scrollbar.pack(fill=tk.Y, side=tk.RIGHT)
         self.table.configure(yscrollcommand=scrollbar.set)
+    
+    def edit_device(self, event):
+        """Handle double-click on a device in the table."""
+        item = self.table.selection()[0]
+        values = self.table.item(item)['values']
+        if not values:
+            return
+            
+        # Get existing device data
+        mac_address = values[2]  # MAC address is the third column
+        device_data = {
+            'name': values[0],
+            'ip': values[1],
+            'mac': mac_address,
+            'vendor': values[3],
+            'model': values[4]
+        }
+        
+        # Get stored information
+        stored_info = self.device_manager.get_device_info(mac_address)
+        if stored_info:
+            device_data.update(stored_info)
+        
+        # Open editor dialog
+        editor = DeviceEditorDialog(self.root, device_data)
+        self.root.wait_window(editor.dialog)
+        
+        # Update device information if changes were made
+        if editor.result:
+            self.device_manager.update_device(mac_address, editor.result)
+            self.update_table_row(item, editor.result)
+
+    def update_table_row(self, item, device_data):
+        """Update a single row in the table with new device data."""
+        self.table.item(item, values=(
+            device_data['name'],
+            device_data['ip'],
+            device_data['mac'],
+            device_data['vendor'],
+            device_data['model'],
+            'Active',
+            datetime.now().strftime('%H:%M:%S')
+        ))
 
     def setup_controls(self):
         control_frame = ttk.Frame(self.main_frame, style='Modern.TFrame')
@@ -201,13 +250,17 @@ class MainWindow:
             
         # Add new items
         for device in devices:
+            # Merge with stored device information
+            device_info = self.device_manager.merge_scan_data(device)
             self.table.insert(
                 '',
                 'end',
                 values=(
-                    device['hostname'],
-                    device['ip'],
-                    device['mac'],
+                    device_info.get('name', device_info['hostname']),
+                    device_info['ip'],
+                    device_info['mac'],
+                    device_info.get('vendor', ''),
+                    device_info.get('model', ''),
                     'Active',
                     datetime.now().strftime('%H:%M:%S')
                 )
