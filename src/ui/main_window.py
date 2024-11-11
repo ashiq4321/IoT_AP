@@ -146,12 +146,44 @@ class MainWindow:
         
         # Add double-click binding
         self.table.bind('<Double-1>', self.edit_device)
+
+        # Add right-click menu
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="Edit", command=self.edit_selected_device)
+        self.context_menu.add_command(label="Forget", command=self.forget_selected_device)
+        self.table.bind('<Button-3>', self.show_context_menu)
         
         # Add scrollbar
         scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.table.yview)
         scrollbar.pack(fill=tk.Y, side=tk.RIGHT)
         self.table.configure(yscrollcommand=scrollbar.set)
+
+    def show_context_menu(self, event):
+        """Show context menu on right click."""
+        item = self.table.identify_row(event.y)
+        if item:
+            self.table.selection_set(item)
+            self.context_menu.post(event.x_root, event.y_root)
     
+    def edit_selected_device(self):
+        """Edit the selected device."""
+        selected = self.table.selection()
+        if selected:
+            self.edit_device(None, item=selected[0])
+
+    def forget_selected_device(self):
+        """Remove the selected device from stored data."""
+        selected = self.table.selection()
+        if selected:
+            item = selected[0]
+            values = self.table.item(item)['values']
+            if values:
+                mac_address = values[2]  # MAC address is the third column
+                self.device_manager.forget_device(mac_address)
+                self.table.delete(item)
+                self.status_bar.update_status(f"Device {values[0]} has been forgotten.")
+                self.update_stats()
+
     def edit_device(self, event):
         """Handle double-click on a device in the table."""
         item = self.table.selection()[0]
@@ -227,21 +259,40 @@ class MainWindow:
         self.status_bar.update_status("Scanning network...")
         self.root.update()
         
+        # Get currently active devices
+        active_devices = {}
         hotspot_ip = self.scanner.get_hotspot_ip()
         if hotspot_ip:
             hotspot_subnet = ".".join(hotspot_ip.split('.')[:3])
-            devices = self.scanner.scan_network(hotspot_subnet)
-            self.populate_table(devices)
-            self.update_stats(devices)
-            self.last_scan_label.config(
-                text=f"Last scan: {datetime.now().strftime('%H:%M:%S')}"
-            )
-            self.status_bar.update_status(f"Scan complete. Found {len(devices)} devices.")
-        else:
-            self.status_bar.update_status("Error: Could not retrieve hotspot IP.")
-            
+            for device in self.scanner.scan_network(hotspot_subnet):
+                device_info = self.device_manager.merge_scan_data(device, is_active=True)
+                active_devices[device_info['mac']] = device_info
+        
+        # Get stored devices and update their status
+        stored_devices = self.device_manager.get_all_devices()
+        for mac, device in stored_devices.items():
+            if mac not in active_devices:
+                device_info = self.device_manager.merge_scan_data(
+                    {'mac': mac, 'ip': device['ip'], 'hostname': device['name']},
+                    is_active=False
+                )
+                active_devices[mac] = device_info
+        
+        # Update the table
+        self.populate_table(list(active_devices.values()))
+        self.update_stats(active_devices)
+        self.last_scan_label.config(
+            text=f"Last scan: {datetime.now().strftime('%H:%M:%S')}"
+        )
+        
+        active_count = sum(1 for device in active_devices.values() if device['is_active'])
+        self.status_bar.update_status(
+            f"Scan complete. Found {active_count} active devices, "
+            f"{len(active_devices) - active_count} inactive."
+        )
+        
         self.scan_button.state(['!disabled'])
-
+    
     def populate_table(self, devices: List[Dict[str, str]]):
         """Populate the table with detected devices."""
         # Clear existing items
@@ -250,27 +301,28 @@ class MainWindow:
             
         # Add new items
         for device in devices:
-            # Merge with stored device information
-            device_info = self.device_manager.merge_scan_data(device)
             self.table.insert(
                 '',
                 'end',
                 values=(
-                    device_info.get('name', device_info['hostname']),
-                    device_info['ip'],
-                    device_info['mac'],
-                    device_info.get('vendor', ''),
-                    device_info.get('model', ''),
-                    'Active',
-                    datetime.now().strftime('%H:%M:%S')
+                    device['name'],
+                    device['ip'],
+                    device['mac'],
+                    device.get('vendor', ''),
+                    device.get('model', ''),
+                    'Active' if device['is_active'] else 'Inactive',
+                    device['last_seen']
                 )
             )
 
-    def update_stats(self, devices: List[Dict[str, str]] = None):
+
+    def update_stats(self, devices: Dict[str, Dict] = None):
         """Update statistics display."""
         if devices is not None:
-            self.total_devices_label.config(text=f"Total Devices: {len(devices)}")
-            self.active_devices_label.config(text=f"Active Devices: {len(devices)}")
+            total_devices = len(devices)
+            active_devices = sum(1 for device in devices.values() if device['is_active'])
+            self.total_devices_label.config(text=f"Total Devices: {total_devices}")
+            self.active_devices_label.config(text=f"Active Devices: {active_devices}")
 
     def export_data(self):
         """Export the current device list to a CSV file."""
