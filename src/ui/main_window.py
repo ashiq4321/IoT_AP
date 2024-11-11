@@ -54,7 +54,7 @@ class MainWindow:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Network Device Monitor")
-        self.root.geometry("800x600")
+        self.root.geometry("1200x700")
         self.scanner = DeviceScanner()
         self.device_manager = DeviceManager()
         self.setup_styles()
@@ -256,17 +256,24 @@ class MainWindow:
     def detect_devices_handler(self):
         """Handle the device detection button click."""
         self.scan_button.state(['disabled'])
+        
+        # Check hotspot status
+        is_active, hotspot_ip, status_message = self.scanner.check_hotspot()
+        
+        if not is_active:
+            self.status_bar.update_status(f"Error: {status_message}")
+            self.scan_button.state(['!disabled'])
+            return
+        
         self.status_bar.update_status("Scanning network...")
         self.root.update()
         
         # Get currently active devices
         active_devices = {}
-        hotspot_ip = self.scanner.get_hotspot_ip()
-        if hotspot_ip:
-            hotspot_subnet = ".".join(hotspot_ip.split('.')[:3])
-            for device in self.scanner.scan_network(hotspot_subnet):
-                device_info = self.device_manager.merge_scan_data(device, is_active=True)
-                active_devices[device_info['mac']] = device_info
+        hotspot_subnet = ".".join(hotspot_ip.split('.')[:3])
+        for device in self.scanner.scan_network(hotspot_subnet):
+            device_info = self.device_manager.merge_scan_data(device, is_active=True)
+            active_devices[device_info['mac']] = device_info
         
         # Get stored devices and update their status
         stored_devices = self.device_manager.get_all_devices()
