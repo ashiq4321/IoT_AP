@@ -84,7 +84,8 @@ class MainWindow:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.setup_styles()
         self.setup_ui()
-        
+        self.load_stored_devices()
+      
     def setup_styles(self):
         self.root.configure(bg='#f0f0f0')
         style = ttk.Style()
@@ -336,6 +337,35 @@ class MainWindow:
             command=self.root.quit
         ).pack(side=tk.RIGHT, padx=5)
 
+    def load_stored_devices(self):
+        """Load and display stored devices from device_data.json"""
+        stored_devices = self.device_manager.get_all_devices()
+        devices_list = []
+        
+        for mac, device in stored_devices.items():
+            device_info = {
+                'name': device.get('name', 'Unknown Device'),
+                'ip': device.get('ip', ''),
+                'mac': mac,
+                'vendor': device.get('vendor', ''),
+                'model': device.get('model', ''),
+                'is_active': False,  # Initially mark as inactive
+                'last_seen': device.get('last_seen', 'Never'),
+                'version': device.get('version', ''),
+                'notes': device.get('notes', '')
+            }
+            devices_list.append(device_info)
+        
+        # Populate the table with stored devices
+        if devices_list:
+            self.populate_table(devices_list)
+            self.status_bar.update_status(f"Loaded {len(devices_list)} stored devices")
+        else:
+            self.status_bar.update_status("No stored devices found")
+            
+        # Update statistics
+        self.update_stats({device['mac']: device for device in devices_list})
+
     def detect_devices_handler(self):
         """Handle the device detection button click."""
         self.scan_button.state(['disabled'])
@@ -354,22 +384,54 @@ class MainWindow:
         # Get hotspot info
         hotspot_info = self.scanner.get_hotspot_info()
         
-        # Get currently active devices
+        # Get currently active devices and merge with stored data
         active_devices = {}
         hotspot_subnet = ".".join(hotspot_ip.split('.')[:3])
-        for device in self.scanner.scan_network(hotspot_subnet):
-            device_info = self.device_manager.merge_scan_data(device, is_active=True)
-            active_devices[device_info['mac']] = device_info
         
-        # Update the table
+        # Get stored devices first
+        stored_devices = self.device_manager.get_all_devices()
+        for mac, device in stored_devices.items():
+            device_info = {
+                'name': device.get('name', 'Unknown Device'),
+                'ip': device.get('ip', ''),
+                'mac': mac,
+                'vendor': device.get('vendor', ''),
+                'model': device.get('model', ''),
+                'version': device.get('version', ''),
+                'notes': device.get('notes', ''),
+                'is_active': False,
+                'last_seen': device.get('last_seen', 'Never')
+            }
+            active_devices[mac] = device_info
+        
+        # Update with currently active devices
+        for device in self.scanner.scan_network(hotspot_subnet):
+            mac = device['mac']
+            device_info = self.device_manager.merge_scan_data(device, is_active=True)
+            if mac in active_devices:
+                # Update existing device info
+                active_devices[mac].update(device_info)
+                active_devices[mac]['is_active'] = True
+                active_devices[mac]['last_seen'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                # Add new device
+                active_devices[mac] = device_info
+        
+        # Update the table and stats
         self.populate_table(list(active_devices.values()))
         self.update_stats(active_devices)
+        
+        # Update last scan time
         self.last_scan_label.config(
             text=f"Last scan: {datetime.now().strftime('%H:%M:%S')}"
         )
         
+        # Calculate active devices count
+        active_count = sum(1 for device in active_devices.values() if device['is_active'])
+        
         self.status_bar.update_status(
-            f"Scan complete. Found {len(active_devices)} active devices. "
+            f"Scan complete. Found {active_count} active devices. "
+            f"Total devices: {len(active_devices)}. "
             f"Hotspot reports {hotspot_info.get('ClientCount', 0)} connected clients."
         )
         
