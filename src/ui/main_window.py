@@ -338,34 +338,74 @@ class MainWindow:
         ).pack(side=tk.RIGHT, padx=5)
 
     def load_stored_devices(self):
-        """Load and display stored devices from device_data.json"""
+        """Load and display stored devices from device_data.json with status check"""
         stored_devices = self.device_manager.get_all_devices()
         devices_list = []
         
+        # Check hotspot status first
+        is_active, hotspot_ip, _ = self.scanner.check_hotspot()
+        
+        # If hotspot is active, get currently active devices
+        active_macs = set()
+        if is_active:
+            hotspot_subnet = ".".join(hotspot_ip.split('.')[:3])
+            current_scan = self.scanner.scan_network(hotspot_subnet)
+            active_macs = {device['mac'] for device in current_scan}
+            
+        # Process stored devices
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         for mac, device in stored_devices.items():
+            # Check if device is in currently active devices
+            is_device_active = mac in active_macs
+            
             device_info = {
                 'name': device.get('name', 'Unknown Device'),
                 'ip': device.get('ip', ''),
                 'mac': mac,
                 'vendor': device.get('vendor', ''),
                 'model': device.get('model', ''),
-                'is_active': False,  # Initially mark as inactive
-                'last_seen': device.get('last_seen', 'Never'),
                 'version': device.get('version', ''),
-                'notes': device.get('notes', '')
+                'notes': device.get('notes', ''),
+                'is_active': is_device_active,
+                'last_seen': current_time if is_device_active else device.get('last_seen', 'Never')
             }
+            
+            # Update the stored device info if status changed
+            if is_device_active:
+                self.device_manager.update_device(mac, device_info)
+            
             devices_list.append(device_info)
         
-        # Populate the table with stored devices
+        # Add any new active devices that weren't in storage
+        if is_active:
+            for device in current_scan:
+                mac = device['mac']
+                if mac not in stored_devices:
+                    device_info = self.device_manager.merge_scan_data(device, is_active=True)
+                    device_info['last_seen'] = current_time
+                    devices_list.append(device_info)
+                    # Save new device to storage
+                    self.device_manager.update_device(mac, device_info)
+        
+        # Populate the table with devices
         if devices_list:
             self.populate_table(devices_list)
-            self.status_bar.update_status(f"Loaded {len(devices_list)} stored devices")
+            active_count = sum(1 for device in devices_list if device.get('is_active', False))
+            self.status_bar.update_status(
+                f"Loaded {len(devices_list)} devices. {active_count} currently active."
+            )
         else:
             self.status_bar.update_status("No stored devices found")
             
         # Update statistics
-        self.update_stats({device['mac']: device for device in devices_list})
-
+        device_dict = {device['mac']: device for device in devices_list}
+        self.update_stats(device_dict)
+        
+        # Update last scan time if we performed a scan
+        if is_active:
+            self.last_scan_label.config(
+                text=f"Last scan: {datetime.now().strftime('%H:%M:%S')}"
+            )
     def detect_devices_handler(self):
         """Handle the device detection button click."""
         self.scan_button.state(['disabled'])
