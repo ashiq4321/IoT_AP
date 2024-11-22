@@ -405,17 +405,30 @@ class MainWindow:
             active_devices[mac] = device_info
         
         # Update with currently active devices
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         for device in self.scanner.scan_network(hotspot_subnet):
             mac = device['mac']
             device_info = self.device_manager.merge_scan_data(device, is_active=True)
+            device_info['last_seen'] = current_time
+            
             if mac in active_devices:
                 # Update existing device info
                 active_devices[mac].update(device_info)
                 active_devices[mac]['is_active'] = True
-                active_devices[mac]['last_seen'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                active_devices[mac]['last_seen'] = current_time
+                # Save updated info to JSON
+                self.device_manager.update_device(mac, active_devices[mac])
             else:
-                # Add new device
+                # Add and save new device
+                device_info['is_active'] = True
                 active_devices[mac] = device_info
+                # Save new device to JSON
+                self.device_manager.update_device(mac, device_info)
+        
+        # Update inactive devices in storage
+        for mac, device in active_devices.items():
+            if not device['is_active']:
+                self.device_manager.update_device(mac, device)
         
         # Update the table and stats
         self.populate_table(list(active_devices.values()))
