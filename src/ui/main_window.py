@@ -1,12 +1,16 @@
 # src/ui/main_window.py
 import tkinter as tk
 from tkinter import ttk
+from tkinter import messagebox
 import time
 from datetime import datetime
 from ..network.device_scanner import DeviceScanner
+from ..network.packet_capture import PacketCaptureManager
 from typing import List, Dict
 from ..data.device_manager import DeviceManager
 from .device_editor import DeviceEditorDialog
+
+from .packet_capture_dialog import PacketCaptureDialog
 
 class ModernTable(ttk.Treeview):
     def __init__(self, parent, columns):
@@ -15,9 +19,22 @@ class ModernTable(ttk.Treeview):
         self.setup_style()
         
     def setup_columns(self, columns):
+        # Column configurations
+        column_configs = {
+            'Device Name': {'width': 150, 'anchor': 'w'},
+            'IP Address': {'width': 120, 'anchor': 'center'},
+            'MAC Address': {'width': 150, 'anchor': 'center'},
+            'Vendor': {'width': 120, 'anchor': 'w'},
+            'Model': {'width': 120, 'anchor': 'w'},
+            'Status': {'width': 80, 'anchor': 'center'},
+            'Last Seen': {'width': 100, 'anchor': 'center'},
+            'Capture Status': {'width': 120, 'anchor': 'center'}
+        }
+        
         for col in columns:
+            config = column_configs.get(col, {'width': 150, 'anchor': 'center'})
             self.heading(col, text=col, command=lambda c=col: self.sort_column(c))
-            self.column(col, anchor='center', width=150)
+            self.column(col, width=config['width'], anchor=config['anchor'])
             
     def setup_style(self):
         style = ttk.Style()
@@ -25,8 +42,14 @@ class ModernTable(ttk.Treeview):
         style.configure('Treeview.Heading', font=('Arial', 11, 'bold'))
         
     def sort_column(self, col):
+        """Sort tree contents when a column header is clicked."""
+        # Get all items in the tree
         items = [(self.set(item, col), item) for item in self.get_children('')]
+        
+        # Sort by the selected column
         items.sort()
+        
+        # Rearrange items in sorted positions
         for index, (_, item) in enumerate(items):
             self.move(item, '', index)
 
@@ -57,6 +80,8 @@ class MainWindow:
         self.root.geometry("1200x700")
         self.scanner = DeviceScanner()
         self.device_manager = DeviceManager()
+        self.packet_capture_manager = PacketCaptureManager()
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.setup_styles()
         self.setup_ui()
         
@@ -97,6 +122,14 @@ class MainWindow:
         
         # Initialize stats
         self.update_stats()
+
+    def setup_context_menu(self):
+        """Set up the right-click context menu with packet capture option."""
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="Edit", command=self.edit_selected_device)
+        self.context_menu.add_command(label="Packet Capture", command=self.start_packet_capture)
+        self.context_menu.add_command(label="Forget", command=self.forget_selected_device)
+        self.table.bind('<Button-3>', self.show_context_menu)
 
     def setup_header(self):
         header_frame = ttk.Frame(self.main_frame, style='Modern.TFrame')
@@ -139,24 +172,74 @@ class MainWindow:
         table_frame = ttk.Frame(self.main_frame)
         table_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Create table
-        columns = ('Device Name', 'IP Address', 'MAC Address', 'Vendor', 'Model', 'Status', 'Last Seen')
+        # Create table with additional packet capture status column
+        columns = ('Device Name', 'IP Address', 'MAC Address', 'Vendor', 
+                  'Model', 'Status', 'Last Seen', 'Capture Status')
         self.table = ModernTable(table_frame, columns)
         self.table.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
         
+        # Update column widths
+        self.table.column('Capture Status', width=100)
+        
         # Add double-click binding
         self.table.bind('<Double-1>', self.edit_device)
-
-        # Add right-click menu
-        self.context_menu = tk.Menu(self.root, tearoff=0)
-        self.context_menu.add_command(label="Edit", command=self.edit_selected_device)
-        self.context_menu.add_command(label="Forget", command=self.forget_selected_device)
-        self.table.bind('<Button-3>', self.show_context_menu)
+        
+        # Set up context menu
+        self.setup_context_menu()
         
         # Add scrollbar
         scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.table.yview)
         scrollbar.pack(fill=tk.Y, side=tk.RIGHT)
         self.table.configure(yscrollcommand=scrollbar.set)
+
+    def start_packet_capture(self):
+        """Open packet capture dialog for selected device."""
+        selected = self.table.selection()
+        if not selected:
+            return
+            
+        # Get device info
+        values = self.table.item(selected[0])['values']
+        if not values:
+            return
+            
+        device_info = {
+            'name': values[0],
+            'ip': values[1],
+            'mac': values[2],
+            'vendor': values[3],
+            'model': values[4]
+        }
+        
+        # Open packet capture dialog
+        PacketCaptureDialog(self.root, device_info, self.packet_capture_manager)
+        
+        # Start status update timer
+        self.update_capture_status()
+
+    def update_capture_status(self):
+        """Update packet capture status in the table."""
+        for item in self.table.get_children():
+            values = self.table.item(item)['values']
+            if not values:
+                continue
+                
+            mac_address = values[2]
+            status = self.packet_capture_manager.get_capture_status(mac_address)
+            
+            if status['running']:
+                state = "Paused" if status['paused'] else "Capturing"
+                capture_status = f"{state} ({status['packet_count']})"
+            else:
+                capture_status = ""
+                
+            # Update the capture status column
+            values = list(values)
+            values[7] = capture_status
+            self.table.item(item, values=values)
+        
+        # Schedule next update
+        self.root.after(1000, self.update_capture_status)
 
     def show_context_menu(self, event):
         """Show context menu on right click."""
@@ -308,6 +391,13 @@ class MainWindow:
             
         # Add new items
         for device in devices:
+            # Get capture status
+            status = self.packet_capture_manager.get_capture_status(device['mac'])
+            if status['running']:
+                capture_status = f"{'Paused' if status['paused'] else 'Capturing'} ({status['packet_count']})"
+            else:
+                capture_status = ""
+            
             self.table.insert(
                 '',
                 'end',
@@ -318,7 +408,8 @@ class MainWindow:
                     device.get('vendor', ''),
                     device.get('model', ''),
                     'Active' if device['is_active'] else 'Inactive',
-                    device['last_seen']
+                    device['last_seen'],
+                    capture_status
                 )
             )
 
@@ -336,6 +427,25 @@ class MainWindow:
         # Implementation for exporting data
         self.status_bar.update_status("Export feature not implemented yet.")
 
+    def on_closing(self):
+        """Handle application shutdown."""
+        # Check if any captures are running
+        active_captures = False
+        for item in self.table.get_children():
+            values = self.table.item(item)['values']
+            if values and values[7]:  # Check capture status column
+                active_captures = True
+                break
+        
+        if active_captures:
+            if messagebox.askyesno("Quit", "Some packet captures are still running. Stop them and quit?"):
+                self.packet_capture_manager.cleanup()
+                self.root.destroy()
+        else:
+            self.root.destroy()
+
     def run(self):
         """Start the application."""
+        # Start capture status update timer
+        self.update_capture_status()
         self.root.mainloop()
