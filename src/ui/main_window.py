@@ -351,22 +351,15 @@ class MainWindow:
         self.status_bar.update_status("Scanning network...")
         self.root.update()
         
+        # Get hotspot info
+        hotspot_info = self.scanner.get_hotspot_info()
+        
         # Get currently active devices
         active_devices = {}
         hotspot_subnet = ".".join(hotspot_ip.split('.')[:3])
         for device in self.scanner.scan_network(hotspot_subnet):
             device_info = self.device_manager.merge_scan_data(device, is_active=True)
             active_devices[device_info['mac']] = device_info
-        
-        # Get stored devices and update their status
-        stored_devices = self.device_manager.get_all_devices()
-        for mac, device in stored_devices.items():
-            if mac not in active_devices:
-                device_info = self.device_manager.merge_scan_data(
-                    {'mac': mac, 'ip': device['ip'], 'hostname': device['name']},
-                    is_active=False
-                )
-                active_devices[mac] = device_info
         
         # Update the table
         self.populate_table(list(active_devices.values()))
@@ -375,14 +368,12 @@ class MainWindow:
             text=f"Last scan: {datetime.now().strftime('%H:%M:%S')}"
         )
         
-        active_count = sum(1 for device in active_devices.values() if device['is_active'])
         self.status_bar.update_status(
-            f"Scan complete. Found {active_count} active devices, "
-            f"{len(active_devices) - active_count} inactive."
+            f"Scan complete. Found {len(active_devices)} active devices. "
+            f"Hotspot reports {hotspot_info.get('ClientCount', 0)} connected clients."
         )
         
         self.scan_button.state(['!disabled'])
-    
     def populate_table(self, devices: List[Dict[str, str]]):
         """Populate the table with detected devices."""
         # Clear existing items
