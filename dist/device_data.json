@@ -1,0 +1,13 @@
+{
+    "12:12:05:a3:99:29": {
+        "name": "Unknown Device",
+        "ip": "192.168.137.228",
+        "mac": "12:12:05:a3:99:29",
+        "vendor": "",
+        "model": "",
+        "version": "",
+        "notes": "",
+        "is_active": true,
+        "last_seen": "2024-12-04 03:15:09"
+    }
+}
