@@ -6,10 +6,12 @@
         "vendor": "",
         "model": "",
         "version": "",
-        "notes": ""
+        "notes": "",
+        "is_active": false,
+        "last_seen": "Never"
     },
     "06-8b-5d-42-19-2a": {
-        "name": "Ashiqul's phone",
+        "name": "new phone",
         "ip": "192.168.137.129",
         "mac": "06-8b-5d-42-19-2a",
         "vendor": "",
