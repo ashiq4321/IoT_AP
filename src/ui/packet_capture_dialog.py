@@ -31,15 +31,6 @@ class PacketCaptureDialog:
         settings_frame = ttk.LabelFrame(main_frame, text="Capture Settings", padding="10")
         settings_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # Packet count
-        packet_frame = ttk.Frame(settings_frame)
-        packet_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Label(packet_frame, text="Packet Count:").pack(side=tk.LEFT)
-        self.packet_count = tk.StringVar(value="")
-        ttk.Entry(packet_frame, textvariable=self.packet_count, width=10).pack(side=tk.LEFT, padx=5)
-        ttk.Label(packet_frame, text="(optional)").pack(side=tk.LEFT)
-        
         # Duration
         duration_frame = ttk.Frame(settings_frame)
         duration_frame.pack(fill=tk.X, pady=5)
@@ -65,8 +56,6 @@ class PacketCaptureDialog:
         self.status_label = ttk.Label(status_frame, text="Not running")
         self.status_label.pack(anchor=tk.W)
         
-        self.packet_count_label = ttk.Label(status_frame, text="Packets captured: 0")
-        self.packet_count_label.pack(anchor=tk.W)
         
         # Control Buttons
         button_frame = ttk.Frame(main_frame)
@@ -103,9 +92,7 @@ class PacketCaptureDialog:
     
     def start_capture(self):
         """Start packet capture with current settings."""
-        # Validate inputs
         try:
-            packet_count = int(self.packet_count.get()) if self.packet_count.get() else None
             duration = int(self.duration.get()) if self.duration.get() else None
             filename = self.filename.get()
             
@@ -115,7 +102,7 @@ class PacketCaptureDialog:
         except ValueError:
             messagebox.showerror(
                 "Invalid Input",
-                "Please enter valid numbers for packet count and duration."
+                "Please enter a valid number for duration."
             )
             return
             
@@ -124,7 +111,6 @@ class PacketCaptureDialog:
             self.device_info['mac'],
             self.device_info['ip'],
             filename=filename,
-            packet_count=packet_count,
             duration=duration
         )
         
@@ -164,19 +150,29 @@ class PacketCaptureDialog:
         if not self.dialog.winfo_exists():
             return
             
-        status = self.capture_manager.get_capture_status(self.device_info['mac'])
-        
-        if status['running']:
-            state = "Paused" if status['paused'] else "Running"
-            self.status_label.configure(text=f"Status: {state}")
-            self.packet_count_label.configure(
-                text=f"Packets captured: {status['packet_count']}"
-            )
-        else:
-            self.status_label.configure(text="Status: Not running")
+        try:
+            status = self.capture_manager.get_capture_status(self.device_info['mac'])
             
-        # Schedule next update
-        self.dialog.after(1000, self.update_status)
+            if status['running']:
+                state = "Paused" if status['paused'] else "Running"
+                self.status_label.configure(text=f"Status: {state}")
+                # Keep controls in correct state while running
+                self.start_button.configure(state=tk.DISABLED)
+                self.pause_button.configure(state=tk.NORMAL)
+                self.stop_button.configure(state=tk.NORMAL)
+            else:
+                self.status_label.configure(text="Status: Not running")
+                # Reset controls when not running
+                self.start_button.configure(state=tk.NORMAL)
+                self.pause_button.configure(state=tk.DISABLED)
+                self.stop_button.configure(state=tk.DISABLED)
+                self.pause_button.configure(text="Pause")
+                
+        except Exception as e:
+            logger.error(f"Error updating status: {str(e)}")
+            
+        # Schedule next update with shorter interval for responsiveness
+        self.dialog.after(500, self.update_status)
     
     def close(self):
         """Close the dialog."""

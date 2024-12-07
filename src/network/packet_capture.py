@@ -1,5 +1,5 @@
+import logging
 from scapy.all import sniff, wrpcap, IP, conf
-from scapy.arch.windows import get_windows_if_list  # Updated import
 from threading import Thread, Event, Lock
 from typing import Dict, Optional, List, Tuple
 import time
@@ -8,64 +8,44 @@ import sys
 import platform
 from datetime import datetime
 import netifaces  # For backup interface detection
+from queue import Queue, Empty
+import threading
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 class PacketCaptureManager:
     def __init__(self, save_dir: str = "captures"):
-        self.save_dir = save_dir
+        self.save_dir = os.path.abspath(save_dir)
+        if not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir)
+        logger.debug(f"Initialized PacketCaptureManager with save_dir: {self.save_dir}")
         self.capture_threads: Dict[str, Thread] = {}
         self.stop_events: Dict[str, Event] = {}
         self.pause_events: Dict[str, Event] = {}
         self.packets: Dict[str, List] = {}
         self.capture_locks: Dict[str, Lock] = {}
-        
-        # Create absolute path for captures directory
-        self.save_dir = os.path.abspath(save_dir)
-        if not os.path.exists(self.save_dir):
-            os.makedirs(self.save_dir)
+        self.packet_queues: Dict[str, Queue] = {}
+        self.save_threads: Dict[str, Thread] = {}
 
-    def _find_hotspot_interface(self) -> Optional[str]:
-        """Find the network interface for the Mobile Hotspot."""
+    def _find_hotspot_interface(self) -> Optional[tuple]:
+        """Find the Wi-Fi Direct Virtual Adapter interface.
+        Returns tuple of (interface_name, interface_index)"""
+        logger.debug("Searching for hotspot interface...")
         try:
-            # First try using Windows-specific network interface detection
-            try:
-                from scapy.arch.windows import get_windows_if_list
-                interfaces = get_windows_if_list()
-                for iface in interfaces:
-                    # Look for interfaces that might be the hotspot
-                    name = str(iface.get('name', '')).lower()
-                    description = str(iface.get('description', '')).lower()
-                    if ('local area connection* ' in name or 
-                        'wi-fi direct' in name or
-                        'mobile hotspot' in name or
-                        'local area connection* ' in description or
-                        'wi-fi direct' in description):
-                        print(f"Found hotspot interface: {iface['name']}")
-                        return iface['name']
-            except Exception as e:
-                print(f"Error using Scapy interface detection: {str(e)}")
-
-            # Fallback: Use netifaces
-            try:
-                for iface in netifaces.interfaces():
-                    addrs = netifaces.ifaddresses(iface)
-                    if netifaces.AF_INET in addrs:
-                        for addr in addrs[netifaces.AF_INET]:
-                            if addr['addr'].startswith('192.168.137.'):
-                                print(f"Found hotspot interface (fallback): {iface}")
-                                return iface
-            except Exception as e:
-                print(f"Error using netifaces fallback: {str(e)}")
-
-            # Last resort: Use conf.iface
-            try:
-                print(f"Using default interface: {conf.iface}")
-                return conf.iface
-            except Exception as e:
-                print(f"Error getting default interface: {str(e)}")
-                return None
-
+            for iface_name, iface in conf.ifaces.items():
+                if (hasattr(iface, 'description') and 
+                    'Wi-Fi Direct Virtual Adapter' in iface.description and
+                    hasattr(iface, 'ip') and
+                    str(iface.ip).startswith('192.168.137.')):
+                    # Get interface index
+                    index = conf.ifaces[iface_name].index
+                    logger.debug(f"Found hotspot interface: {iface_name} (index: {index})")
+                    return (iface_name, index)
+            logger.error("Hotspot interface not found")
+            return None
         except Exception as e:
-            print(f"Error finding hotspot interface: {str(e)}")
+            logger.error(f"Error finding interface: {str(e)}")
             return None
 
     def _verify_requirements(self) -> Tuple[bool, str]:
@@ -94,168 +74,137 @@ class PacketCaptureManager:
         except Exception as e:
             return False, f"Error checking requirements: {str(e)}"
 
-    def _capture_packets(self, 
-                        device_mac: str, 
-                        ip_address: str, 
-                        filepath: str,
-                        packet_count: Optional[int],
-                        duration: Optional[int]):
-        """Packet capture worker function."""
-        start_time = time.time()
-        packets_captured = 0
-        
+    def _save_packets_worker(self, mac_address: str, save_path: str):
+        """Background worker to save packets."""
         try:
-            print(f"Starting capture for device {device_mac} at {ip_address}")
-            print(f"Saving captures to: {filepath}")
-            
-            # Find the correct interface
-            iface = self._find_hotspot_interface()
-            if not iface:
-                print("Error: Could not find hotspot interface")
+            queue = self.packet_queues.get(mac_address)
+            if not queue:
+                logger.error(f"No queue found for device {mac_address}")
                 return
                 
-            print(f"Using interface: {iface}")
-            
-            # Create or truncate capture file
-            with open(filepath, 'wb') as f:
-                pass
-                
-            def packet_callback(pkt):
-                """Process captured packet"""
-                nonlocal packets_captured
+            while True:
+                # Check if stop event exists and is set
+                if mac_address in self.stop_events and self.stop_events[mac_address].is_set():
+                    if queue.empty():
+                        break
+                        
                 try:
-                    if IP in pkt:
-                        # Debug print for the first few packets
-                        if packets_captured < 5:
-                            print(f"Packet: {pkt[IP].src} -> {pkt[IP].dst}")
-                            
-                        if pkt[IP].src == ip_address or pkt[IP].dst == ip_address:
-                            print(f"Captured packet for {ip_address}")
-                            
-                            # Check stop condition
-                            if self.stop_events[device_mac].is_set():
-                                return True
-                            
-                            # Handle pause
-                            while self.pause_events[device_mac].is_set():
-                                time.sleep(0.1)
-                                if self.stop_events[device_mac].is_set():
-                                    return True
-                            
-                            # Process packet
-                            with self.capture_locks[device_mac]:
-                                self.packets[device_mac].append(pkt)
-                                wrpcap(filepath, [pkt], append=True)
-                                packets_captured += 1
-                                print(f"Packets captured: {packets_captured}")
-                                
-                                # Check limits
-                                if packet_count and packets_captured >= packet_count:
-                                    print(f"Reached packet count limit: {packet_count}")
-                                    self.stop_events[device_mac].set()
-                                    return True
-                                    
-                                if duration and (time.time() - start_time) >= duration:
-                                    print(f"Reached duration limit: {duration}s")
-                                    self.stop_events[device_mac].set()
-                                    return True
-                                    
-                    return False
-                    
+                    packets = queue.get(timeout=1)
+                    if packets:
+                        with self.capture_locks.get(mac_address, Lock()):
+                            wrpcap(save_path, packets, append=True)
+                except Empty:
+                    continue
                 except Exception as e:
-                    print(f"Error processing packet: {str(e)}")
-                    return False
-
-            try:
-                # Configure Scapy
-                conf.use_pcap = True
-                
-                # Start capture with specific interface
-                print("Starting packet capture...")
-                sniff(
-                    iface=iface,
-                    filter=f"host {ip_address}",
-                    prn=packet_callback,
-                    store=0,
-                    timeout=duration,
-                    stop_filter=lambda _: self.stop_events[device_mac].is_set()
-                )
-            except Exception as e:
-                print(f"Error in sniff operation: {str(e)}")
-                self.stop_events[device_mac].set()
-                
+                    logger.error(f"Error saving packets: {str(e)}")
+                    
         except Exception as e:
-            print(f"Error in capture thread: {str(e)}")
+            logger.error(f"Save worker error for {mac_address}: {str(e)}")
         finally:
-            print(f"Capture ended for {device_mac}")
-            with self.capture_locks[device_mac]:
-                self.cleanup_device(device_mac)
+            logger.debug(f"Save worker finished for {mac_address}")
 
-    def start_capture(self, 
-                     device_mac: str, 
-                     ip_address: str,
+    def _capture_packets(self, mac_address: str, ip_address: str, 
+                        interface_info: tuple, save_path: str,
+                        packet_count: Optional[int] = None,
+                        duration: Optional[int] = None):
+        """Capture packets for a specific device."""
+        interface_name, interface_index = interface_info
+        logger.debug(f"Starting capture for device {mac_address} at {ip_address}")
+        
+        # Initialize packet queue and save thread
+        self.packet_queues[mac_address] = Queue(maxsize=1000)
+        self.save_threads[mac_address] = Thread(
+            target=self._save_packets_worker,
+            args=(mac_address, save_path)
+        )
+        self.save_threads[mac_address].start()
+
+        packet_buffer = []
+        start_time = time.time()
+        last_save = start_time
+        packet_counter = 0
+
+        try:
+            def packet_handler(packet):
+                nonlocal packet_counter, packet_buffer, last_save
+                
+                if IP in packet and (packet[IP].src == ip_address or packet[IP].dst == ip_address):
+                    if not self.stop_events[mac_address].is_set() and not self.pause_events[mac_address].is_set():
+                        packet_buffer.append(packet)
+                        packet_counter += 1
+
+                        # Buffer packets and save periodically
+                        current_time = time.time()
+                        if len(packet_buffer) >= 100 or (current_time - last_save) >= 5:
+                            if not self.packet_queues[mac_address].full():
+                                self.packet_queues[mac_address].put(packet_buffer)
+                            packet_buffer = []
+                            last_save = current_time
+
+                        with self.capture_locks[mac_address]:
+                            self.packets[mac_address] = packet_counter
+
+                return (packet_count and packet_counter >= packet_count) or \
+                       (duration and (time.time() - start_time) > duration) or \
+                       self.stop_events[mac_address].is_set()
+
+            sniff(
+                iface=interface_name,
+                prn=packet_handler,
+                store=0,
+                stop_filter=lambda _: self.stop_events[mac_address].is_set()
+            )
+
+        except Exception as e:
+            logger.error(f"Capture error: {str(e)}")
+        finally:
+            # Save remaining packets
+            if packet_buffer:
+                self.packet_queues[mac_address].put(packet_buffer)
+            
+            # Wait for save thread to finish
+            self.stop_events[mac_address].set()
+            self.save_threads[mac_address].join()
+
+            logger.debug(f"Capture ended for {mac_address}")
+
+    def start_capture(self, mac_address: str, ip_address: str, 
                      filename: Optional[str] = None,
                      packet_count: Optional[int] = None,
-                     duration: Optional[int] = None) -> Tuple[bool, str]:
-        """Start capturing packets for a specific device."""
+                     duration: Optional[int] = None) -> bool:
+        """Start packet capture."""
         try:
-            # Verify requirements first
-            requirements_met, message = self._verify_requirements()
-            if not requirements_met:
-                print(f"Requirements not met: {message}")
-                return False, message
+            interface = self._find_hotspot_interface()
+            if not interface:
+                logger.error("No suitable network interface found")
+                return False
+
+            if not filename:
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                filename = f"capture_{mac_address.replace(':', '')}_{timestamp}.pcap"
+                
+            filepath = os.path.join(self.save_dir, filename)
+            logger.debug(f"Capture will be saved to: {filepath}")
+
+            # Initialize capture data structures
+            self.stop_events[mac_address] = Event()
+            self.pause_events[mac_address] = Event()
+            self.packets[mac_address] = []
+            self.capture_locks[mac_address] = Lock()
             
-            # Create lock if needed
-            if device_mac not in self.capture_locks:
-                self.capture_locks[device_mac] = Lock()
+            # Start capture thread
+            self.capture_threads[mac_address] = Thread(
+                target=self._capture_packets,
+                args=(mac_address, ip_address, interface, filepath, packet_count, duration)
+            )
+            self.capture_threads[mac_address].start()
             
-            with self.capture_locks[device_mac]:
-                # Check if capture is already running
-                if device_mac in self.capture_threads and self.capture_threads[device_mac].is_alive():
-                    return False, "Capture already running for this device"
-                
-                # Clean up any existing capture resources
-                self.cleanup_device(device_mac)
-                
-                # Generate filename if not provided
-                if not filename:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filename = f"capture_{device_mac.replace(':', '')}_{timestamp}.pcap"
-                
-                # Ensure .pcap extension
-                if not filename.endswith('.pcap'):
-                    filename += '.pcap'
-                
-                filepath = os.path.join(self.save_dir, filename)
-                print(f"Capture will be saved to: {filepath}")
-                
-                # Initialize capture state
-                self.packets[device_mac] = []
-                self.stop_events[device_mac] = Event()
-                self.pause_events[device_mac] = Event()
-                
-                # Create and start capture thread
-                capture_thread = Thread(
-                    target=self._capture_packets,
-                    args=(device_mac, ip_address, filepath, packet_count, duration)
-                )
-                capture_thread.daemon = True
-                self.capture_threads[device_mac] = capture_thread
-                
-                try:
-                    capture_thread.start()
-                    print(f"Capture thread started for {device_mac}")
-                    return True, "Capture started successfully"
-                except Exception as e:
-                    self.cleanup_device(device_mac)
-                    error_msg = f"Failed to start capture thread: {str(e)}"
-                    print(error_msg)
-                    return False, error_msg
+            logger.info(f"Capture thread started for {mac_address}")
+            return True
                 
         except Exception as e:
-            error_msg = f"Error starting capture: {str(e)}"
-            print(error_msg)
-            return False, error_msg
+            logger.error(f"Failed to start capture: {str(e)}")
+            return False
         
     def pause_capture(self, device_mac: str) -> Tuple[bool, str]:
         """Pause packet capture for a device."""
@@ -303,19 +252,18 @@ class PacketCaptureManager:
         try:
             with self.capture_locks.get(device_mac, Lock()):
                 is_running = (device_mac in self.capture_threads and 
-                            self.capture_threads[device_mac].is_alive())
+                            self.capture_threads[device_mac].is_alive() and
+                            not self.stop_events.get(device_mac, Event()).is_set())
                 is_paused = (device_mac in self.pause_events and 
                            self.pause_events[device_mac].is_set())
-                packet_count = len(self.packets.get(device_mac, []))
                 
                 return {
                     'running': is_running,
-                    'paused': is_paused,  # Added paused status
-                    'packet_count': packet_count
+                    'paused': is_paused
                 }
         except Exception as e:
-            print(f"Error getting capture status: {str(e)}")
-            return {'running': False, 'paused': False, 'packet_count': 0}
+            logger.error(f"Error getting capture status: {str(e)}")
+            return {'running': False, 'paused': False}
 
     def cleanup_device(self, device_mac: str):
         """Clean up resources for a specific device."""
@@ -329,7 +277,7 @@ class PacketCaptureManager:
             if device_mac in self.packets:
                 del self.packets[device_mac]
         except Exception as e:
-            print(f"Error cleaning up resources: {str(e)}")
+            logger.error(f"Error cleaning up resources: {str(e)}")
 
     def cleanup(self):
         """Stop all active captures and cleanup resources."""
