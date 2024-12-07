@@ -173,14 +173,11 @@ class MainWindow:
         table_frame = ttk.Frame(self.main_frame)
         table_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Create table with additional packet capture status column
+        # Create table without capture status column
         columns = ('Device Name', 'IP Address', 'MAC Address', 'Vendor', 
-                  'Model', 'Status', 'Last Seen', 'Capture Status')
+                  'Model', 'Status', 'Last Seen')
         self.table = ModernTable(table_frame, columns)
         self.table.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
-        
-        # Update column widths
-        self.table.column('Capture Status', width=100)
         
         # Add double-click binding
         self.table.bind('<Double-1>', self.edit_device)
@@ -215,32 +212,6 @@ class MainWindow:
         # Open packet capture dialog
         PacketCaptureDialog(self.root, device_info, self.packet_capture_manager)
         
-        # Start status update timer
-        self.update_capture_status()
-
-    def update_capture_status(self):
-        """Update packet capture status in the table."""
-        for item in self.table.get_children():
-            values = self.table.item(item)['values']
-            if not values:
-                continue
-                
-            mac_address = values[2]
-            status = self.packet_capture_manager.get_capture_status(mac_address)
-            
-            if status['running']:
-                state = "Paused" if status['paused'] else "Capturing"
-                capture_status = f"{state} ({status['packet_count']})"
-            else:
-                capture_status = ""
-                
-            # Update the capture status column
-            values = list(values)
-            values[7] = capture_status
-            self.table.item(item, values=values)
-        
-        # Schedule next update
-        self.root.after(1000, self.update_capture_status)
 
     def show_context_menu(self, event):
         """Show context menu on right click."""
@@ -552,6 +523,4 @@ class MainWindow:
 
     def run(self):
         """Start the application."""
-        # Start capture status update timer
-        self.update_capture_status()
         self.root.mainloop()

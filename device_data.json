@@ -17,6 +17,19 @@
         "vendor": "",
         "model": "",
         "version": "",
-        "notes": ""
+        "notes": "",
+        "is_active": false,
+        "last_seen": "Never"
+    },
+    "12:12:05:a3:99:29": {
+        "name": "Unknown Device",
+        "ip": "192.168.137.80",
+        "mac": "12:12:05:a3:99:29",
+        "vendor": "",
+        "model": "",
+        "version": "",
+        "notes": "",
+        "is_active": true,
+        "last_seen": "2024-12-06 22:54:21"
     }
 }
