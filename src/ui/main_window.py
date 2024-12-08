@@ -127,7 +127,6 @@ class MainWindow:
     def setup_context_menu(self):
         """Set up the right-click context menu with packet capture option."""
         self.context_menu = tk.Menu(self.root, tearoff=0)
-        self.context_menu.add_command(label="Edit", command=self.edit_selected_device)
         self.context_menu.add_command(label="Packet Capture", command=self.start_packet_capture)
         self.context_menu.add_command(label="Forget", command=self.forget_selected_device)
         self.table.bind('<Button-3>', self.show_context_menu)
