@@ -1,0 +1,7 @@
+PyQt6==6.6.1
+matplotlib==3.8.2
+pyqtgraph==0.13.3
+scapy=2.6.1
+netifaces=0.11.0
+numpy=2.2.0 
+pyqtgraph=0.13.7
