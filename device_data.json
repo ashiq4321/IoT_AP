@@ -1,25 +1,14 @@
 {
-    "5c-e9-1e-8f-49-3e": {
-        "name": "Ashiquls-MBP",
-        "ip": "192.168.137.108",
-        "mac": "5c-e9-1e-8f-49-3e",
+    "5c:e9:1e:8f:49:3e": {
+        "name": "Ash MBP",
+        "ip": "192.168.137.203",
+        "mac": "5c:e9:1e:8f:49:3e",
         "vendor": "",
         "model": "",
         "version": "",
         "notes": "",
-        "is_active": false,
-        "last_seen": "Never"
-    },
-    "06-8b-5d-42-19-2a": {
-        "name": "new phone",
-        "ip": "192.168.137.129",
-        "mac": "06-8b-5d-42-19-2a",
-        "vendor": "",
-        "model": "",
-        "version": "",
-        "notes": "",
-        "is_active": false,
-        "last_seen": "Never"
+        "is_active": true,
+        "last_seen": "2024-12-08 23:55:57"
     },
     "12:12:05:a3:99:29": {
         "name": "Unknown Device",
@@ -30,6 +19,6 @@
         "version": "",
         "notes": "",
         "is_active": true,
-        "last_seen": "2024-12-08 19:54:06"
+        "last_seen": "2024-12-08 23:55:57"
     }
 }

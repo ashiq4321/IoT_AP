@@ -1,90 +1,94 @@
-import tkinter as tk
-from tkinter import ttk
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit,
+                           QPushButton, QDialogButtonBox, QMessageBox)
+from PyQt6.QtCore import Qt, QRegularExpression
+from PyQt6.QtGui import QRegularExpressionValidator
 
-class DeviceEditorDialog:
-    def __init__(self, parent, device_data):
-        self.result = None
-        self.dialog = tk.Toplevel(parent)
-        self.dialog.title("Edit Device Information")
-        self.dialog.geometry("400x500")
-        self.dialog.resizable(False, False)
-        
-        # Make dialog modal
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
-        
-        self.device_data = device_data
+class DeviceEditorDialog(QDialog):
+    def __init__(self, parent, device_data=None):
+        super().__init__(parent)
+        self.device_data = device_data or {}
+        self.setWindowTitle("Edit Device" if device_data else "Add Device")
+        self.setModal(True)
+        self.setMinimumWidth(400)
         self.setup_ui()
-        
+        self.load_device_data()
+
     def setup_ui(self):
-        # Create main frame
-        main_frame = ttk.Frame(self.dialog, padding="20")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        # Device name field
+        self.name_input = QLineEdit()
+        form.addRow("Device Name:", self.name_input)
+
+        # IP address field with validation
+        self.ip_input = QLineEdit()
+        ip_regex = QRegularExpression(
+            r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}"
+            r"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
+        )
+        self.ip_input.setValidator(QRegularExpressionValidator(ip_regex))
+        form.addRow("IP Address:", self.ip_input)
+
+        # MAC address field with validation
+        self.mac_input = QLineEdit()
+        mac_regex = QRegularExpression(
+            r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+        )
+        self.mac_input.setValidator(QRegularExpressionValidator(mac_regex))
+        form.addRow("MAC Address:", self.mac_input)
+
+        # Vendor field
+        self.vendor_input = QLineEdit()
+        form.addRow("Vendor:", self.vendor_input)
+
+        # Model field
+        self.model_input = QLineEdit()
+        form.addRow("Model:", self.model_input)
+
+        layout.addLayout(form)
+
+        # Add buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | 
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def load_device_data(self):
+        if self.device_data:
+            self.name_input.setText(self.device_data.get('name', ''))
+            self.ip_input.setText(self.device_data.get('ip', ''))
+            self.mac_input.setText(self.device_data.get('mac', ''))
+            self.vendor_input.setText(self.device_data.get('vendor', ''))
+            self.model_input.setText(self.device_data.get('model', ''))
+
+    def validate_inputs(self):
+        if not self.name_input.text().strip():
+            QMessageBox.warning(self, "Validation Error", "Device name is required")
+            return False
+        if not self.ip_input.text().strip():
+            QMessageBox.warning(self, "Validation Error", "IP address is required")
+            return False
+        if not self.mac_input.text().strip():
+            QMessageBox.warning(self, "Validation Error", "MAC address is required")
+            return False
+        return True
+
+    def accept(self):
+        if not self.validate_inputs():
+            return
         
-        # Create and pack widgets
-        fields = [
-            ("Name:", "name"),
-            ("IP Address:", "ip"),
-            ("MAC Address:", "mac"),
-            ("Vendor:", "vendor"),
-            ("Model:", "model"),
-            ("Version:", "version")
-        ]
-        
-        self.entries = {}
-        for label_text, field in fields:
-            frame = ttk.Frame(main_frame)
-            frame.pack(fill=tk.X, pady=5)
-            
-            label = ttk.Label(frame, text=label_text, width=15)
-            label.pack(side=tk.LEFT)
-            
-            entry = ttk.Entry(frame)
-            entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            entry.insert(0, self.device_data.get(field, ""))
-            
-            # Make IP and MAC read-only
-            if field in ['ip', 'mac']:
-                entry.configure(state='readonly')
-                
-            self.entries[field] = entry
-        
-        # Notes field
-        notes_frame = ttk.Frame(main_frame)
-        notes_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-        
-        notes_label = ttk.Label(notes_frame, text="Notes:")
-        notes_label.pack(anchor=tk.W)
-        
-        self.notes_text = tk.Text(notes_frame, height=6)
-        self.notes_text.pack(fill=tk.BOTH, expand=True)
-        self.notes_text.insert('1.0', self.device_data.get('notes', ''))
-        
-        # Buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, pady=(20, 0))
-        
-        ttk.Button(
-            button_frame,
-            text="Save",
-            command=self.save
-        ).pack(side=tk.RIGHT, padx=5)
-        
-        ttk.Button(
-            button_frame,
-            text="Cancel",
-            command=self.dialog.destroy
-        ).pack(side=tk.RIGHT)
-        
-    def save(self):
-        """Save the edited information."""
-        self.result = {
-            'name': self.entries['name'].get(),
-            'ip': self.entries['ip'].get(),
-            'mac': self.entries['mac'].get(),
-            'vendor': self.entries['vendor'].get(),
-            'model': self.entries['model'].get(),
-            'version': self.entries['version'].get(),
-            'notes': self.notes_text.get('1.0', tk.END).strip()
+        self.device_data = {
+            'name': self.name_input.text().strip(),
+            'ip': self.ip_input.text().strip(),
+            'mac': self.mac_input.text().strip(),
+            'vendor': self.vendor_input.text().strip(),
+            'model': self.model_input.text().strip()
         }
-        self.dialog.destroy()
+        super().accept()
+
+    def get_device_data(self):
+        return self.device_data

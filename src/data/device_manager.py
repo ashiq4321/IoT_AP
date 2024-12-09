@@ -4,24 +4,48 @@ from typing import Dict, Optional
 from datetime import datetime
 
 class DeviceManager:
-    def __init__(self, storage_file: str = "device_data.json"):
-        self.storage_file = storage_file
-        self.devices = self._load_devices()
-    
-    def _load_devices(self) -> Dict:
-        """Load device data from storage file."""
-        if os.path.exists(self.storage_file):
-            try:
-                with open(self.storage_file, 'r') as f:
-                    return json.load(f)
-            except json.JSONDecodeError:
-                return {}
-        return {}
-    
+    def __init__(self):
+        self.devices = {}
+        self.data_file = "device_data.json"
+        self.load_devices()
+
+    def load_devices(self):
+        """Load devices from JSON file"""
+        try:
+            if os.path.exists(self.data_file):
+                with open(self.data_file, 'r') as f:
+                    self.devices = json.load(f)
+                    # Normalize MAC addresses
+                    normalized_devices = {}
+                    for mac, device in self.devices.items():
+                        normalized_mac = self.normalize_mac(mac)
+                        device['mac'] = normalized_mac
+                        normalized_devices[normalized_mac] = device
+                    self.devices = normalized_devices
+            return True
+        except Exception as e:
+            print(f"Error loading devices: {e}")
+            self.devices = {}
+            return False
+
+    def normalize_mac(self, mac):
+        """Normalize MAC address format to XX:XX:XX:XX:XX:XX"""
+        clean_mac = mac.replace('-', ':').lower()
+        return clean_mac
+
+    def get_stored_devices(self):
+        """Return stored devices"""
+        return self.devices
+
     def save_devices(self):
-        """Save device data to storage file."""
-        with open(self.storage_file, 'w') as f:
-            json.dump(self.devices, f, indent=4)
+        """Save devices to JSON file"""
+        try:
+            with open(self.data_file, 'w') as f:
+                json.dump(self.devices, f, indent=4)
+            return True
+        except Exception as e:
+            print(f"Error saving devices: {e}")
+            return False
     
     def update_device(self, mac_address: str, device_info: Dict):
         """Update or add device information."""

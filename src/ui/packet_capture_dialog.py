@@ -1,127 +1,135 @@
 # src/ui/packet_capture_dialog.py
-import tkinter as tk
-from tkinter import ttk
-from tkinter import messagebox
-import os
-from typing import Optional, Dict
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+                           QLineEdit, QPushButton, QFrame, QGroupBox, QMessageBox)
+from PyQt6.QtCore import QTimer, Qt
 
-class PacketCaptureDialog:
-    def __init__(self, parent, device_info: Dict, capture_manager):
-        self.dialog = tk.Toplevel(parent)
-        self.dialog.title(f"Packet Capture - {device_info['name']}")
-        self.dialog.geometry("500x400")
-        self.dialog.resizable(False, False)
-        
-        # Make dialog modal
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
-        
+class PacketCaptureDialog(QDialog):
+    def __init__(self, parent, device_info, capture_manager):
+        super().__init__(parent)
         self.device_info = device_info
         self.capture_manager = capture_manager
+        
+        self.setWindowTitle(f"Packet Capture - {device_info['name']}")
+        self.setModal(True)
+        self.setMinimumWidth(400)
+        
         self.setup_ui()
-        
-        # Start status update timer
-        self.update_status()
-        
+        self.start_status_updates()
+
     def setup_ui(self):
-        main_frame = ttk.Frame(self.dialog, padding="20")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
+        layout = QVBoxLayout(self)
+
         # Capture Settings
-        settings_frame = ttk.LabelFrame(main_frame, text="Capture Settings", padding="10")
-        settings_frame.pack(fill=tk.X, pady=(0, 10))
-        
+        settings_group = QGroupBox("Capture Settings")
+        settings_layout = QVBoxLayout(settings_group)
+
         # Duration
-        duration_frame = ttk.Frame(settings_frame)
-        duration_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Label(duration_frame, text="Duration (seconds):").pack(side=tk.LEFT)
-        self.duration = tk.StringVar(value="")
-        ttk.Entry(duration_frame, textvariable=self.duration, width=10).pack(side=tk.LEFT, padx=5)
-        ttk.Label(duration_frame, text="(optional)").pack(side=tk.LEFT)
-        
+        duration_layout = QHBoxLayout()
+        duration_layout.addWidget(QLabel("Duration (seconds):"))
+        self.duration_input = QLineEdit()
+        duration_layout.addWidget(self.duration_input)
+        duration_layout.addWidget(QLabel("(optional)"))
+        settings_layout.addLayout(duration_layout)
+
         # Filename
-        filename_frame = ttk.Frame(settings_frame)
-        filename_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Label(filename_frame, text="Filename:").pack(side=tk.LEFT)
-        self.filename = tk.StringVar(value="")
-        ttk.Entry(filename_frame, textvariable=self.filename, width=30).pack(side=tk.LEFT, padx=5)
-        ttk.Label(filename_frame, text=".pcap").pack(side=tk.LEFT)
-        
+        filename_layout = QHBoxLayout()
+        filename_layout.addWidget(QLabel("Filename:"))
+        self.filename_input = QLineEdit()
+        filename_layout.addWidget(self.filename_input)
+        filename_layout.addWidget(QLabel(".pcap"))
+        settings_layout.addLayout(filename_layout)
+
+        layout.addWidget(settings_group)
+
         # Status Frame
-        status_frame = ttk.LabelFrame(main_frame, text="Capture Status", padding="10")
-        status_frame.pack(fill=tk.X, pady=10)
-        
-        self.status_label = ttk.Label(status_frame, text="Not running")
-        self.status_label.pack(anchor=tk.W)
-        
-        
+        status_group = QGroupBox("Capture Status")
+        status_layout = QVBoxLayout(status_group)
+        self.status_label = QLabel("Not running")
+        status_layout.addWidget(self.status_label)
+        layout.addWidget(status_group)
+
         # Control Buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, pady=10)
+        button_layout = QHBoxLayout()
         
-        self.start_button = ttk.Button(
-            button_frame,
-            text="Start Capture",
-            command=self.start_capture
-        )
-        self.start_button.pack(side=tk.LEFT, padx=5)
+        self.start_button = QPushButton("Start Capture")
+        self.start_button.clicked.connect(self.start_capture)
         
-        self.pause_button = ttk.Button(
-            button_frame,
-            text="Pause",
-            command=self.pause_capture,
-            state=tk.DISABLED
-        )
-        self.pause_button.pack(side=tk.LEFT, padx=5)
+        self.pause_button = QPushButton("Pause")
+        self.pause_button.clicked.connect(self.pause_capture)
+        self.pause_button.setEnabled(False)
         
-        self.stop_button = ttk.Button(
-            button_frame,
-            text="Stop",
-            command=self.stop_capture,
-            state=tk.DISABLED
-        )
-        self.stop_button.pack(side=tk.LEFT, padx=5)
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.clicked.connect(self.stop_capture)
+        self.stop_button.setEnabled(False)
         
-        ttk.Button(
-            button_frame,
-            text="Close",
-            command=self.close
-        ).pack(side=tk.RIGHT, padx=5)
-    
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.close)
+
+        button_layout.addWidget(self.start_button)
+        button_layout.addWidget(self.pause_button)
+        button_layout.addWidget(self.stop_button)
+        button_layout.addStretch()
+        button_layout.addWidget(close_button)
+        
+        layout.addLayout(button_layout)
+
+    def start_status_updates(self):
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.update_status)
+        self.update_timer.start(500)
+
+    def update_status(self):
+        try:
+            status = self.capture_manager.get_capture_status(self.device_info['mac'])
+            
+            if status['running']:
+                state = "Paused" if status['paused'] else "Running"
+                self.status_label.setText(f"Status: {state}")
+                self.start_button.setEnabled(False)
+                self.pause_button.setEnabled(True)
+                self.stop_button.setEnabled(True)
+            else:
+                self.status_label.setText("Status: Not running")
+                self.start_button.setEnabled(True)
+                self.pause_button.setEnabled(False)
+                self.stop_button.setEnabled(False)
+                self.pause_button.setText("Pause")
+        except Exception as e:
+            self.status_label.setText(f"Error: {str(e)}")
+ 
     def start_capture(self):
         """Start packet capture with current settings."""
         try:
-            duration = int(self.duration.get()) if self.duration.get() else None
-            filename = self.filename.get()
+            # Fix: Use text() instead of get() for QLineEdit
+            duration = int(self.duration_input.text()) if self.duration_input.text() else None
+            filename = self.filename_input.text()
             
             if filename and not filename.endswith('.pcap'):
                 filename += '.pcap'
                 
+            success = self.capture_manager.start_capture(
+                self.device_info['mac'],
+                self.device_info['ip'],
+                filename=filename,
+                duration=duration
+            )
+            
+            if success:
+                self.start_button.setEnabled(False)
+                self.pause_button.setEnabled(True)
+                self.stop_button.setEnabled(True)
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Error", 
+                    "Failed to start packet capture. A capture might already be running."
+                )
+                
         except ValueError:
-            messagebox.showerror(
+            QMessageBox.critical(
+                self,
                 "Invalid Input",
                 "Please enter a valid number for duration."
-            )
-            return
-            
-        # Start capture
-        success = self.capture_manager.start_capture(
-            self.device_info['mac'],
-            self.device_info['ip'],
-            filename=filename,
-            duration=duration
-        )
-        
-        if success:
-            self.start_button.configure(state=tk.DISABLED)
-            self.pause_button.configure(state=tk.NORMAL)
-            self.stop_button.configure(state=tk.NORMAL)
-        else:
-            messagebox.showerror(
-                "Error",
-                "Failed to start packet capture. A capture might already be running."
             )
     
     def pause_capture(self):
@@ -131,57 +139,16 @@ class PacketCaptureDialog:
         if status['paused']:
             # Resume capture
             self.capture_manager.resume_capture(self.device_info['mac'])
-            self.pause_button.configure(text="Pause")
+            self.pause_button.setText("Pause")
         else:
             # Pause capture
             self.capture_manager.pause_capture(self.device_info['mac'])
-            self.pause_button.configure(text="Resume")
+            self.pause_button.setText("Resume")
     
     def stop_capture(self):
         """Stop packet capture."""
         self.capture_manager.stop_capture(self.device_info['mac'])
-        self.start_button.configure(state=tk.NORMAL)
-        self.pause_button.configure(state=tk.DISABLED)
-        self.stop_button.configure(state=tk.DISABLED)
-        self.pause_button.configure(text="Pause")
-    
-    def update_status(self):
-        """Update status display."""
-        if not self.dialog.winfo_exists():
-            return
-            
-        try:
-            status = self.capture_manager.get_capture_status(self.device_info['mac'])
-            
-            if status['running']:
-                state = "Paused" if status['paused'] else "Running"
-                self.status_label.configure(text=f"Status: {state}")
-                # Keep controls in correct state while running
-                self.start_button.configure(state=tk.DISABLED)
-                self.pause_button.configure(state=tk.NORMAL)
-                self.stop_button.configure(state=tk.NORMAL)
-            else:
-                self.status_label.configure(text="Status: Not running")
-                # Reset controls when not running
-                self.start_button.configure(state=tk.NORMAL)
-                self.pause_button.configure(state=tk.DISABLED)
-                self.stop_button.configure(state=tk.DISABLED)
-                self.pause_button.configure(text="Pause")
-                
-        except Exception as e:
-            logger.error(f"Error updating status: {str(e)}")
-            
-        # Schedule next update with shorter interval for responsiveness
-        self.dialog.after(500, self.update_status)
-    
-    def close(self):
-        """Close the dialog."""
-        if self.capture_manager.get_capture_status(self.device_info['mac'])['running']:
-            if messagebox.askyesno(
-                "Stop Capture",
-                "A capture is still running. Stop it and close?"
-            ):
-                self.stop_capture()
-                self.dialog.destroy()
-        else:
-            self.dialog.destroy()
+        self.start_button.setEnabled(True)
+        self.pause_button.setEnabled(False)
+        self.stop_button.setEnabled(False)
+        self.pause_button.setText("Pause")

@@ -1,545 +1,333 @@
 # src/ui/main_window.py
-import tkinter as tk
-from tkinter import ttk
-from tkinter import messagebox
-import time
-from datetime import datetime
-from ..ui.ids_monitor import IdsMonitorPanel
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                           QPushButton, QLabel, QTableWidget, QTableWidgetItem,
+                           QStatusBar, QTabWidget, QMessageBox, QMenu, QDialog, QApplication)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont, QColor
+import json
+import os
+from .ids_monitor import IdsMonitorPanel
 from ..network.device_scanner import DeviceScanner
 from ..network.packet_capture import PacketCaptureManager
-from typing import List, Dict
 from ..data.device_manager import DeviceManager
+from datetime import datetime
 from .device_editor import DeviceEditorDialog
-
 from .packet_capture_dialog import PacketCaptureDialog
 
-class ModernTable(ttk.Treeview):
-    def __init__(self, parent, columns):
-        super().__init__(parent, columns=columns, show='headings')
-        self.setup_columns(columns)
-        self.setup_style()
-        
-    def setup_columns(self, columns):
-        # Column configurations
-        column_configs = {
-            'Device Name': {'width': 150, 'anchor': 'w'},
-            'IP Address': {'width': 120, 'anchor': 'center'},
-            'MAC Address': {'width': 150, 'anchor': 'center'},
-            'Vendor': {'width': 120, 'anchor': 'w'},
-            'Model': {'width': 120, 'anchor': 'w'},
-            'Status': {'width': 80, 'anchor': 'center'},
-            'Last Seen': {'width': 100, 'anchor': 'center'},
-            'Capture Status': {'width': 120, 'anchor': 'center'}
-        }
-        
-        for col in columns:
-            config = column_configs.get(col, {'width': 150, 'anchor': 'center'})
-            self.heading(col, text=col, command=lambda c=col: self.sort_column(c))
-            self.column(col, width=config['width'], anchor=config['anchor'])
-            
-    def setup_style(self):
-        style = ttk.Style()
-        style.configure('Treeview', rowheight=30, font=('Arial', 10))
-        style.configure('Treeview.Heading', font=('Arial', 11, 'bold'))
-        
-    def sort_column(self, col):
-        """Sort tree contents when a column header is clicked."""
-        # Get all items in the tree
-        items = [(self.set(item, col), item) for item in self.get_children('')]
-        
-        # Sort by the selected column
-        items.sort()
-        
-        # Rearrange items in sorted positions
-        for index, (_, item) in enumerate(items):
-            self.move(item, '', index)
-
-class StatusBar(tk.Frame):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.setup_ui()
-        
-    def setup_ui(self):
-        self.status_label = tk.Label(
-            self,
-            text="Ready",
-            font=('Arial', 9),
-            bd=1,
-            relief=tk.SUNKEN,
-            anchor=tk.W
-        )
-        self.status_label.pack(fill=tk.X, padx=5, pady=2)
-        
-    def update_status(self, message: str):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.status_label.config(text=f"{timestamp} - {message}")
-
-class MainWindow:
+class MainWindow(QMainWindow):
     def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("Network Device Monitor")
-        self.root.geometry("1200x700")
+        super().__init__()
         self.scanner = DeviceScanner()
         self.device_manager = DeviceManager()
         self.packet_capture_manager = PacketCaptureManager()
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-        self.setup_styles()
+        
+        self.setWindowTitle("Network Device Monitor")
+        self.setGeometry(100, 100, 1200, 700)
+        
         self.setup_ui()
         self.load_stored_devices()
-        
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # Create main frame for existing UI
-        self.main_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.main_frame, text="Devices")
-        
-        # Move existing UI elements to main_frame instead of root
-        # Status bar frame
-        self.status_frame = ttk.Frame(self.main_frame)
-        self.status_frame.pack(fill=tk.X, side=tk.BOTTOM)
-        
-        # Table frame 
-        self.table_frame = ttk.Frame(self.main_frame)
-        self.table_frame.pack(fill=tk.BOTH, expand=True)
-        # Add IDS monitoring tab
-        self.ids_monitor = IdsMonitorPanel(self.notebook, self.packet_capture_manager.ids_manager)
-        self.notebook.add(self.ids_monitor, text="IDS Monitor")
-      
-    def setup_styles(self):
-        self.root.configure(bg='#f0f0f0')
-        style = ttk.Style()
-        style.configure('Modern.TFrame', background='#f0f0f0')
-        style.configure('Modern.TButton', 
-                       padding=10, 
-                       font=('Arial', 10, 'bold'))
-        style.configure('Title.TLabel',
-                       font=('Arial', 16, 'bold'),
-                       background='#f0f0f0')
-        style.configure('Stats.TLabel',
-                       font=('Arial', 10),
-                       background='#f0f0f0')
 
     def setup_ui(self):
-        # Main container
-        self.main_frame = ttk.Frame(self.root, style='Modern.TFrame')
-        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        # Create central widget and main layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
 
-        # Title and last scan info
-        self.setup_header()
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        main_layout.addWidget(self.tab_widget)
+
+        # Devices tab
+        devices_widget = QWidget()
+        devices_layout = QVBoxLayout(devices_widget)
         
-        # Statistics panel
-        self.setup_stats_panel()
-        
+        # Header
+        header_layout = QHBoxLayout()
+        title_label = QLabel("Network Device Monitor")
+        title_label.setFont(QFont('Arial', 16, QFont.Weight.Bold))
+        self.last_scan_label = QLabel("Last scan: Never")
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        header_layout.addWidget(self.last_scan_label)
+        devices_layout.addLayout(header_layout)
+
+        # Stats panel
+        stats_layout = QHBoxLayout()
+        self.total_devices_label = QLabel("Total Devices: 0")
+        self.active_devices_label = QLabel("Active Devices: 0")
+        stats_layout.addWidget(self.total_devices_label)
+        stats_layout.addWidget(self.active_devices_label)
+        stats_layout.addStretch()
+        devices_layout.addLayout(stats_layout)
+
         # Device table
+        self.table = QTableWidget()
         self.setup_table()
-        
+        devices_layout.addWidget(self.table)
+
         # Control buttons
-        self.setup_controls()
+        controls_layout = QHBoxLayout()
+        scan_btn = QPushButton("Scan Network")
+        scan_btn.setObjectName("scan_btn")
+        scan_btn.clicked.connect(self.detect_devices_handler)
         
+        controls_layout.addWidget(scan_btn)
+        controls_layout.addStretch()
+        
+        self.capture_btn = QPushButton("Start Packet Capture")
+        self.capture_btn.setEnabled(False)  # Initially disabled
+        self.capture_btn.clicked.connect(self.open_packet_capture)
+        controls_layout.addWidget(self.capture_btn)
+        
+        devices_layout.addLayout(controls_layout)
+
+        # Add devices tab
+        self.tab_widget.addTab(devices_widget, "Devices")
+
+        # Add IDS Monitor tab
+        self.ids_monitor = IdsMonitorPanel(self.packet_capture_manager.ids_manager)
+        self.tab_widget.addTab(self.ids_monitor, "IDS Monitor")
+
         # Status bar
-        self.status_bar = StatusBar(self.root)
-        self.status_bar.pack(fill=tk.X, side=tk.BOTTOM)
-        
-        # Initialize stats
-        self.update_stats()
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("Ready")
+    
+    def detect_devices_handler(self):
+        """Scan for devices connected to Windows hotspot"""
+        try:
+            # Disable scan button during scan
+            scan_btn = self.findChild(QPushButton, "scan_btn")
+            if (scan_btn):
+                scan_btn.setEnabled(False)
 
-    def setup_context_menu(self):
-        """Set up the right-click context menu with packet capture option."""
-        self.context_menu = tk.Menu(self.root, tearoff=0)
-        self.context_menu.add_command(label="Packet Capture", command=self.start_packet_capture)
-        self.context_menu.add_command(label="Forget", command=self.forget_selected_device)
-        self.table.bind('<Button-3>', self.show_context_menu)
+            # Initial status
+            self.status_bar.showMessage("🔍 Initializing network scan...")
+            QApplication.processEvents()  # Update UI
 
-    def setup_header(self):
-        header_frame = ttk.Frame(self.main_frame, style='Modern.TFrame')
-        header_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        title = ttk.Label(
-            header_frame,
-            text="Network Device Monitor",
-            style='Title.TLabel'
-        )
-        title.pack(side=tk.LEFT)
-        
-        self.last_scan_label = ttk.Label(
-            header_frame,
-            text="Last scan: Never",
-            style='Stats.TLabel'
-        )
-        self.last_scan_label.pack(side=tk.RIGHT)
+            # Check hotspot
+            self.status_bar.showMessage("🔍 Checking hotspot status...")
+            is_active, hotspot_ip, status = self.scanner.check_hotspot()
+            if not is_active:
+                raise Exception("Windows Mobile Hotspot is not active")
 
-    def setup_stats_panel(self):
-        self.stats_frame = ttk.Frame(self.main_frame, style='Modern.TFrame')
-        self.stats_frame.pack(fill=tk.X, pady=(0, 10))
+            # Start scanning
+            self.status_bar.showMessage("🔍 Scanning network for connected devices...")
+            QApplication.processEvents()
+
+            # Scan for devices
+            found_devices = self.scanner.scan_network(hotspot_ip)
+            
+            # Update device manager
+            self.status_bar.showMessage("📝 Updating device database...")
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Mark inactive devices
+            for device in self.device_manager.devices.values():
+                device['is_active'] = False
+                
+            # Process found devices
+            for device in found_devices:
+                mac = self.device_manager.normalize_mac(device['mac'])
+                if mac in self.device_manager.devices:
+                    self.device_manager.devices[mac].update({
+                        'ip': device['ip'],
+                        'is_active': True,
+                        'last_seen': current_time
+                    })
+                else:
+                    self.device_manager.devices[mac] = {
+                        'name': device['hostname'],
+                        'ip': device['ip'],
+                        'mac': mac,
+                        'vendor': '',
+                        'model': '',
+                        'is_active': True,
+                        'last_seen': current_time
+                    }
+
+            # Save and update UI
+            self.device_manager.save_devices()
+            self.load_stored_devices()
+            
+            # Show results
+            active_count = sum(1 for d in self.device_manager.devices.values() if d['is_active'])
+            self.status_bar.showMessage(f"✅ Scan complete - Found {active_count} active devices")
+            self.last_scan_label.setText(f"Last scan: {current_time}")
+
+        except Exception as e:
+            self.status_bar.showMessage(f"❌ Scan failed: {str(e)}")
+            QMessageBox.warning(self, "Error", f"Network scan failed: {str(e)}")
         
-        self.total_devices_label = ttk.Label(
-            self.stats_frame,
-            text="Total Devices: 0",
-            style='Stats.TLabel'
-        )
-        self.total_devices_label.pack(side=tk.LEFT, padx=5)
-        
-        self.active_devices_label = ttk.Label(
-            self.stats_frame,
-            text="Active Devices: 0",
-            style='Stats.TLabel'
-        )
-        self.active_devices_label.pack(side=tk.LEFT, padx=5)
+        finally:
+            # Re-enable scan button
+            if scan_btn:
+                scan_btn.setEnabled(True)
 
     def setup_table(self):
-        # Create frame for table and scrollbar
-        table_frame = ttk.Frame(self.main_frame)
-        table_frame.pack(fill=tk.BOTH, expand=True)
+        columns = ['Device Name', 'IP Address', 'MAC Address', 'Vendor', 
+                  'Model', 'Status', 'Last Seen']
+        self.table.setColumnCount(len(columns))
+        self.table.setHorizontalHeaderLabels(columns)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         
-        # Create table without capture status column
-        columns = ('Device Name', 'IP Address', 'MAC Address', 'Vendor', 
-                  'Model', 'Status', 'Last Seen')
-        self.table = ModernTable(table_frame, columns)
-        self.table.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
+        # Set column widths
+        widths = [150, 120, 150, 120, 120, 80, 100]
+        for i, width in enumerate(widths):
+            self.table.setColumnWidth(i, width)
         
-        # Add double-click binding
-        self.table.bind('<Double-1>', self.edit_device)
+        # Enable double-click editing
+        self.table.doubleClicked.connect(self.edit_selected_device)
         
-        # Set up context menu
+        # Setup context menu
         self.setup_context_menu()
         
-        # Add scrollbar
-        scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.table.yview)
-        scrollbar.pack(fill=tk.Y, side=tk.RIGHT)
-        self.table.configure(yscrollcommand=scrollbar.set)
-
-    def start_packet_capture(self):
-        """Open packet capture dialog for selected device."""
-        selected = self.table.selection()
-        if not selected:
-            return
-            
-        # Get device info
-        values = self.table.item(selected[0])['values']
-        if not values:
-            return
-            
-        device_info = {
-            'name': values[0],
-            'ip': values[1],
-            'mac': values[2],
-            'vendor': values[3],
-            'model': values[4]
-        }
-        
-        # Open packet capture dialog
-        PacketCaptureDialog(self.root, device_info, self.packet_capture_manager)
-        
-
-    def show_context_menu(self, event):
-        """Show context menu on right click."""
-        item = self.table.identify_row(event.y)
-        if item:
-            self.table.selection_set(item)
-            self.context_menu.post(event.x_root, event.y_root)
+        # Enable capture button when device selected
+        self.table.itemSelectionChanged.connect(self.update_button_states)
     
+    def load_stored_devices(self):
+        """Load and display stored devices"""
+        try:
+            devices = self.device_manager.get_stored_devices()
+            if not devices:
+                self.status_bar.showMessage("No stored devices found")
+                return
+
+            self.table.setRowCount(0)
+            for device_data in devices.values():
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                
+                # Create table items
+                items = [
+                    QTableWidgetItem(device_data.get('name', 'Unknown')),
+                    QTableWidgetItem(device_data.get('ip', '')),
+                    QTableWidgetItem(device_data.get('mac', '')),
+                    QTableWidgetItem(device_data.get('vendor', '')),
+                    QTableWidgetItem(device_data.get('model', '')),
+                    QTableWidgetItem('Active' if device_data.get('is_active', False) else 'Inactive'),
+                    QTableWidgetItem(device_data.get('last_seen', 'Never'))
+                ]
+                
+                # Set items in table
+                for col, item in enumerate(items):
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    self.table.setItem(row, col, item)
+                    
+                    # Highlight active devices
+                    if col == 5 and item.text() == 'Active':
+                        item.setBackground(QColor('#c8e6c9'))  # Light green
+
+            self.status_bar.showMessage(f"Loaded {len(devices)} devices")
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to load devices: {str(e)}")
+            self.status_bar.showMessage("Error loading devices")
+
+    def setup_context_menu(self):
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_context_menu)
+        
+        self.context_menu = QMenu(self)
+        
+        # Existing actions
+        refresh_action = self.context_menu.addAction("Refresh Device")
+        refresh_action.triggered.connect(self.refresh_selected_device)
+        
+        forget_action = self.context_menu.addAction("Forget Device")
+        forget_action.triggered.connect(self.forget_selected_device)
+
+        # Add separator
+        self.context_menu.addSeparator()
+        
+        # Add packet capture action
+        capture_action = self.context_menu.addAction("Start Packet Capture")
+        capture_action.triggered.connect(self.open_packet_capture)
+
+    def show_context_menu(self, position):
+        selected = len(self.table.selectedItems()) > 0
+        for action in self.context_menu.actions():
+            action.setEnabled(selected)
+        self.context_menu.exec(self.table.viewport().mapToGlobal(position))
+
+    def get_selected_device(self):
+        """Get selected device data from table"""
+        row = self.table.currentRow()
+        if (row >= 0):
+            mac = self.table.item(row, 2).text()  # MAC address column
+            return mac, self.device_manager.devices.get(mac)
+        return None, None
+
     def edit_selected_device(self):
-        """Edit the selected device."""
-        selected = self.table.selection()
-        if selected:
-            self.edit_device(None, item=selected[0])
+        """Open dialog to edit selected device"""
+        mac, device = self.get_selected_device()
+        if device:
+            dialog = DeviceEditorDialog(self, device)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                # Update device data
+                updated_data = dialog.get_device_data()
+                self.device_manager.devices[mac].update(updated_data)
+                self.device_manager.save_devices()
+                self.load_stored_devices()
+                self.status_bar.showMessage("Device updated successfully")
 
     def forget_selected_device(self):
-        """Remove the selected device from stored data."""
-        selected = self.table.selection()
-        if selected:
-            item = selected[0]
-            values = self.table.item(item)['values']
-            if values:
-                mac_address = values[2]  # MAC address is the third column
-                self.device_manager.forget_device(mac_address)
-                self.table.delete(item)
-                self.status_bar.update_status(f"Device {values[0]} has been forgotten.")
-                self.update_stats()
-
-    def edit_device(self, event):
-        """Handle double-click on a device in the table."""
-        item = self.table.selection()[0]
-        values = self.table.item(item)['values']
-        if not values:
-            return
+        """Remove selected device from stored devices"""
+        mac, device = self.get_selected_device()
+        if device:
+            reply = QMessageBox.question(
+                self, 
+                'Confirm Delete',
+                f'Are you sure you want to forget device {device["name"]}?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
             
-        # Get existing device data
-        mac_address = values[2]  # MAC address is the third column
-        device_data = {
-            'name': values[0],
-            'ip': values[1],
-            'mac': mac_address,
-            'vendor': values[3],
-            'model': values[4]
-        }
-        
-        # Get stored information
-        stored_info = self.device_manager.get_device_info(mac_address)
-        if stored_info:
-            device_data.update(stored_info)
-        
-        # Open editor dialog
-        editor = DeviceEditorDialog(self.root, device_data)
-        self.root.wait_window(editor.dialog)
-        
-        # Update device information if changes were made
-        if editor.result:
-            self.device_manager.update_device(mac_address, editor.result)
-            self.update_table_row(item, editor.result)
+            if reply == QMessageBox.StandardButton.Yes:
+                del self.device_manager.devices[mac]
+                self.device_manager.save_devices()
+                self.load_stored_devices()
+                self.status_bar.showMessage("Device forgotten")
+    
+    def update_button_states(self):
+        selected = len(self.table.selectedItems()) > 0
+        self.capture_btn.setEnabled(selected)
 
-    def update_table_row(self, item, device_data):
-        """Update a single row in the table with new device data."""
-        self.table.item(item, values=(
-            device_data['name'],
-            device_data['ip'],
-            device_data['mac'],
-            device_data['vendor'],
-            device_data['model'],
-            'Active',
-            datetime.now().strftime('%H:%M:%S')
-        ))
-
-    def setup_controls(self):
-        control_frame = ttk.Frame(self.main_frame, style='Modern.TFrame')
-        control_frame.pack(fill=tk.X, pady=10)
-        
-        self.scan_button = ttk.Button(
-            control_frame,
-            text="Scan Network",
-            style='Modern.TButton',
-            command=self.detect_devices_handler
-        )
-        self.scan_button.pack(side=tk.LEFT, padx=5)
-        
-        ttk.Button(
-            control_frame,
-            text="Export Data",
-            style='Modern.TButton',
-            command=self.export_data
-        ).pack(side=tk.LEFT, padx=5)
-        
-        ttk.Button(
-            control_frame,
-            text="Exit",
-            style='Modern.TButton',
-            command=self.root.quit
-        ).pack(side=tk.RIGHT, padx=5)
-
-    def load_stored_devices(self):
-        """Load and display stored devices from device_data.json with status check"""
-        stored_devices = self.device_manager.get_all_devices()
-        devices_list = []
-        
-        # Check hotspot status first
-        is_active, hotspot_ip, _ = self.scanner.check_hotspot()
-        
-        # If hotspot is active, get currently active devices
-        active_macs = set()
-        if is_active:
-            hotspot_subnet = ".".join(hotspot_ip.split('.')[:3])
-            current_scan = self.scanner.scan_network(hotspot_subnet)
-            active_macs = {device['mac'] for device in current_scan}
-            
-        # Process stored devices
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        for mac, device in stored_devices.items():
-            # Check if device is in currently active devices
-            is_device_active = mac in active_macs
-            
+    def open_packet_capture(self):
+        selected_row = self.table.currentRow()
+        if selected_row >= 0:
             device_info = {
-                'name': device.get('name', 'Unknown Device'),
-                'ip': device.get('ip', ''),
-                'mac': mac,
-                'vendor': device.get('vendor', ''),
-                'model': device.get('model', ''),
-                'version': device.get('version', ''),
-                'notes': device.get('notes', ''),
-                'is_active': is_device_active,
-                'last_seen': current_time if is_device_active else device.get('last_seen', 'Never')
+                'mac': self.table.item(selected_row, 0).text(),
+                'ip': self.table.item(selected_row, 1).text(),
+                'name': self.table.item(selected_row, 2).text()
             }
             
-            # Update the stored device info if status changed
-            if is_device_active:
-                self.device_manager.update_device(mac, device_info)
-            
-            devices_list.append(device_info)
-        
-        # Add any new active devices that weren't in storage
-        if is_active:
-            for device in current_scan:
-                mac = device['mac']
-                if mac not in stored_devices:
-                    device_info = self.device_manager.merge_scan_data(device, is_active=True)
-                    device_info['last_seen'] = current_time
-                    devices_list.append(device_info)
-                    # Save new device to storage
-                    self.device_manager.update_device(mac, device_info)
-        
-        # Populate the table with devices
-        if devices_list:
-            self.populate_table(devices_list)
-            active_count = sum(1 for device in devices_list if device.get('is_active', False))
-            self.status_bar.update_status(
-                f"Loaded {len(devices_list)} devices. {active_count} currently active."
+            dialog = PacketCaptureDialog(
+                self,
+                device_info,
+                self.packet_capture_manager
             )
-        else:
-            self.status_bar.update_status("No stored devices found")
+            dialog.show()
+        # In src/ui/main_window.py
+    
+    def refresh_selected_device(self):
+        """Refresh information for selected device."""
+        selected_row = self.table.currentRow()
+        if selected_row >= 0:
+            mac = self.table.item(selected_row, 0).text()
+            ip = self.table.item(selected_row, 1).text()
             
-        # Update statistics
-        device_dict = {device['mac']: device for device in devices_list}
-        self.update_stats(device_dict)
-        
-        # Update last scan time if we performed a scan
-        if is_active:
-            self.last_scan_label.config(
-                text=f"Last scan: {datetime.now().strftime('%H:%M:%S')}"
-            )
-    def detect_devices_handler(self):
-        """Handle the device detection button click."""
-        self.scan_button.state(['disabled'])
-        
-        # Check hotspot status
-        is_active, hotspot_ip, status_message = self.scanner.check_hotspot()
-        
-        if not is_active:
-            self.status_bar.update_status(f"Error: {status_message}")
-            self.scan_button.state(['!disabled'])
-            return
-        
-        self.status_bar.update_status("Scanning network...")
-        self.root.update()
-        
-        # Get hotspot info
-        hotspot_info = self.scanner.get_hotspot_info()
-        
-        # Get currently active devices and merge with stored data
-        active_devices = {}
-        hotspot_subnet = ".".join(hotspot_ip.split('.')[:3])
-        
-        # Get stored devices first
-        stored_devices = self.device_manager.get_all_devices()
-        for mac, device in stored_devices.items():
-            device_info = {
-                'name': device.get('name', 'Unknown Device'),
-                'ip': device.get('ip', ''),
-                'mac': mac,
-                'vendor': device.get('vendor', ''),
-                'model': device.get('model', ''),
-                'version': device.get('version', ''),
-                'notes': device.get('notes', ''),
-                'is_active': False,
-                'last_seen': device.get('last_seen', 'Never')
-            }
-            active_devices[mac] = device_info
-        
-        # Update with currently active devices
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        for device in self.scanner.scan_network(hotspot_subnet):
-            mac = device['mac']
-            device_info = self.device_manager.merge_scan_data(device, is_active=True)
-            device_info['last_seen'] = current_time
+            # Scan single device
+            device = self.scanner.scan_device(ip, mac)
             
-            if mac in active_devices:
-                # Update existing device info
-                active_devices[mac].update(device_info)
-                active_devices[mac]['is_active'] = True
-                active_devices[mac]['last_seen'] = current_time
-                # Save updated info to JSON
-                self.device_manager.update_device(mac, active_devices[mac])
+            if device:
+                # Update table with new info
+                self.table.setItem(selected_row, 1, QTableWidgetItem(device.get('ip', '')))
+                self.table.setItem(selected_row, 2, QTableWidgetItem(device.get('name', '')))
+                self.table.setItem(selected_row, 3, QTableWidgetItem(device.get('vendor', '')))
+                self.table.setItem(selected_row, 4, QTableWidgetItem(device.get('last_seen', '')))
+                self.table.setItem(selected_row, 5, QTableWidgetItem('Yes' if device.get('active') else 'No'))
+                
+                self.status_bar.showMessage(f"Device {mac} refreshed successfully", 3000)
             else:
-                # Add and save new device
-                device_info['is_active'] = True
-                active_devices[mac] = device_info
-                # Save new device to JSON
-                self.device_manager.update_device(mac, device_info)
-        
-        # Update inactive devices in storage
-        for mac, device in active_devices.items():
-            if not device['is_active']:
-                self.device_manager.update_device(mac, device)
-        
-        # Update the table and stats
-        self.populate_table(list(active_devices.values()))
-        self.update_stats(active_devices)
-        
-        # Update last scan time
-        self.last_scan_label.config(
-            text=f"Last scan: {datetime.now().strftime('%H:%M:%S')}"
-        )
-        
-        # Calculate active devices count
-        active_count = sum(1 for device in active_devices.values() if device['is_active'])
-        
-        self.status_bar.update_status(
-            f"Scan complete. Found {active_count} active devices. "
-            f"Total devices: {len(active_devices)}. "
-            f"Hotspot reports {hotspot_info.get('ClientCount', 0)} connected clients."
-        )
-        
-        self.scan_button.state(['!disabled'])
-    def populate_table(self, devices: List[Dict[str, str]]):
-        """Populate the table with detected devices."""
-        # Clear existing items
-        for item in self.table.get_children():
-            self.table.delete(item)
-            
-        # Add new items
-        for device in devices:
-            # Get capture status
-            status = self.packet_capture_manager.get_capture_status(device['mac'])
-            if status['running']:
-                capture_status = f"{'Paused' if status['paused'] else 'Capturing'} ({status['packet_count']})"
-            else:
-                capture_status = ""
-            
-            self.table.insert(
-                '',
-                'end',
-                values=(
-                    device['name'],
-                    device['ip'],
-                    device['mac'],
-                    device.get('vendor', ''),
-                    device.get('model', ''),
-                    'Active' if device['is_active'] else 'Inactive',
-                    device['last_seen'],
-                    capture_status
-                )
-            )
-
-
-    def update_stats(self, devices: Dict[str, Dict] = None):
-        """Update statistics display."""
-        if devices is not None:
-            total_devices = len(devices)
-            active_devices = sum(1 for device in devices.values() if device['is_active'])
-            self.total_devices_label.config(text=f"Total Devices: {total_devices}")
-            self.active_devices_label.config(text=f"Active Devices: {active_devices}")
-
-    def export_data(self):
-        """Export the current device list to a CSV file."""
-        # Implementation for exporting data
-        self.status_bar.update_status("Export feature not implemented yet.")
-
-    def on_closing(self):
-        """Handle application shutdown."""
-        # Check if any captures are running
-        active_captures = False
-        for item in self.table.get_children():
-            values = self.table.item(item)['values']
-            if values and values[7]:  # Check capture status column
-                active_captures = True
-                break
-        
-        if active_captures:
-            if messagebox.askyesno("Quit", "Some packet captures are still running. Stop them and quit?"):
-                self.packet_capture_manager.cleanup()
-                self.root.destroy()
-        else:
-            self.root.destroy()
-
-    def run(self):
-        """Start the application."""
-        self.root.mainloop()
+                self.status_bar.showMessage(f"Failed to refresh device {mac}", 3000)
