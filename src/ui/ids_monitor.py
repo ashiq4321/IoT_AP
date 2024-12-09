@@ -13,6 +13,7 @@ class IdsMonitorPanel(QWidget):
         self.ids_manager = ids_manager
         self.packet_capture_manager = packet_capture_manager
         self.update_interval = 1000  # 1 second
+        self.active_devices = set()  # Track active capture devices
         
         self.setup_ui()
         self.start_updates()
@@ -51,7 +52,6 @@ class IdsMonitorPanel(QWidget):
         self.timer.start(self.update_interval)
 
     def update_display(self):
-        # Store current table data for devices
         current_data = {}
         for row in range(self.stats_table.rowCount()):
             mac = self.stats_table.item(row, 0).text()
@@ -65,18 +65,21 @@ class IdsMonitorPanel(QWidget):
             label.setParent(None)
         self.alert_labels.clear()
 
-        for row, mac in enumerate(self.ids_manager.data_rates.keys()):
+        # Only display devices with active captures
+        row = 0
+        for mac in self.ids_manager.data_rates.keys():
+            capture_status = self.packet_capture_manager.get_capture_status(mac)
+            if not capture_status.get('running', False):
+                continue
+                
             stats = self.ids_manager.get_device_stats(mac)
             if not stats:
                 continue
 
             self.stats_table.insertRow(row)
             current_rate = list(self.ids_manager.data_rates[mac])[-1]
-            
-            # Use stored threshold or get default
             threshold = current_data.get(mac, self.ids_manager.get_threshold(mac))
             
-            # Check if device has an active alert
             alert_status = "Normal"
             status_color = QColor(200, 255, 200)  # Light green
             
@@ -98,6 +101,8 @@ class IdsMonitorPanel(QWidget):
                 self.stats_table.setItem(row, col, item)
                 if col == 5:  # Status column
                     item.setBackground(status_color)
+
+            row += 1
 
         # Auto-adjust column widths
         self.stats_table.resizeColumnsToContents()
@@ -142,10 +147,11 @@ class IdsMonitorPanel(QWidget):
 
         menu = QMenu()
         set_threshold = menu.addAction("Set Threshold")
+        stop_capture = None  # Initialize variable
         
-        # Add stop capture option and check capture status
+        # Add stop capture option if capture is running
         capture_status = self.packet_capture_manager.get_capture_status(mac)
-        if capture_status['running']:
+        if capture_status.get('running', False):
             stop_capture = menu.addAction("Stop Capture")
         
         action = menu.exec(self.stats_table.viewport().mapToGlobal(position))
@@ -162,11 +168,11 @@ class IdsMonitorPanel(QWidget):
             if ok and threshold > 0:
                 self.ids_manager.set_threshold(mac, threshold)
         
-        elif action == stop_capture:
+        elif stop_capture and action == stop_capture:  # Check if stop_capture exists
             success, msg = self.packet_capture_manager.stop_capture(mac)
             if not success:
                 QMessageBox.warning(self, "Error", f"Failed to stop capture: {msg}")
-            self.update_display()  # Refresh display after stopping
+            self.update_display()
 
     def create_alert_label(self, mac, current_rate, threshold):
         alert_text = (f"⚠️ Alert for {mac}\n"
