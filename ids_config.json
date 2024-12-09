@@ -2,6 +2,7 @@
     "threshold_multiplier": 2.0,
     "window_size": 5,
     "history_days": 7,
+    "device_thresholds": {},
     "email_notifications": {
         "enabled": false,
         "smtp_server": "",

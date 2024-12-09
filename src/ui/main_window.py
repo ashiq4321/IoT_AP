@@ -85,7 +85,10 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(devices_widget, "Devices")
 
         # Add IDS Monitor tab
-        self.ids_monitor = IdsMonitorPanel(self.packet_capture_manager.ids_manager)
+        self.ids_monitor = IdsMonitorPanel(
+            ids_manager=self.packet_capture_manager.ids_manager,
+            packet_capture_manager=self.packet_capture_manager
+        )
         self.tab_widget.addTab(self.ids_monitor, "IDS Monitor")
 
         # Status bar
