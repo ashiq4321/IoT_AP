@@ -96,50 +96,40 @@ class PacketCaptureDialog(QDialog):
                 self.pause_button.setText("Pause")
         except Exception as e:
             self.status_label.setText(f"Error: {str(e)}")
-
-    def start_capture(self):
-        # Implementation for starting capture
-        pass
-
-    def pause_capture(self):
-        # Implementation for pausing capture
-        pass
-
-    def stop_capture(self):
-        # Implementation for stopping capture
-        pass   
+ 
     def start_capture(self):
         """Start packet capture with current settings."""
         try:
-            duration = int(self.duration.get()) if self.duration.get() else None
-            filename = self.filename.get()
+            # Fix: Use text() instead of get() for QLineEdit
+            duration = int(self.duration_input.text()) if self.duration_input.text() else None
+            filename = self.filename_input.text()
             
             if filename and not filename.endswith('.pcap'):
                 filename += '.pcap'
                 
+            success = self.capture_manager.start_capture(
+                self.device_info['mac'],
+                self.device_info['ip'],
+                filename=filename,
+                duration=duration
+            )
+            
+            if success:
+                self.start_button.setEnabled(False)
+                self.pause_button.setEnabled(True)
+                self.stop_button.setEnabled(True)
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Error", 
+                    "Failed to start packet capture. A capture might already be running."
+                )
+                
         except ValueError:
-            QMessageBox.critical(self, "Invalid Input",
+            QMessageBox.critical(
+                self,
                 "Invalid Input",
                 "Please enter a valid number for duration."
-            )
-            return
-            
-        # Start capture
-        success = self.capture_manager.start_capture(
-            self.device_info['mac'],
-            self.device_info['ip'],
-            filename=filename,
-            duration=duration
-        )
-        
-        if success:
-            self.start_button.setEnabled(False)
-            self.pause_button.setEnabled(True)
-            self.stop_button.setEnabled(True)
-        else:
-            QMessageBox.critical(
-                "Error",
-                "Failed to start packet capture. A capture might already be running."
             )
     
     def pause_capture(self):

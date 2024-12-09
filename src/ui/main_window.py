@@ -12,6 +12,7 @@ from ..network.packet_capture import PacketCaptureManager
 from ..data.device_manager import DeviceManager
 from datetime import datetime
 from .device_editor import DeviceEditorDialog
+from .packet_capture_dialog import PacketCaptureDialog
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -72,6 +73,12 @@ class MainWindow(QMainWindow):
         
         controls_layout.addWidget(scan_btn)
         controls_layout.addStretch()
+        
+        self.capture_btn = QPushButton("Start Packet Capture")
+        self.capture_btn.setEnabled(False)  # Initially disabled
+        self.capture_btn.clicked.connect(self.open_packet_capture)
+        controls_layout.addWidget(self.capture_btn)
+        
         devices_layout.addLayout(controls_layout)
 
         # Add devices tab
@@ -91,7 +98,7 @@ class MainWindow(QMainWindow):
         try:
             # Disable scan button during scan
             scan_btn = self.findChild(QPushButton, "scan_btn")
-            if scan_btn:
+            if (scan_btn):
                 scan_btn.setEnabled(False)
 
             # Initial status
@@ -175,6 +182,9 @@ class MainWindow(QMainWindow):
         
         # Setup context menu
         self.setup_context_menu()
+        
+        # Enable capture button when device selected
+        self.table.itemSelectionChanged.connect(self.update_button_states)
     
     def load_stored_devices(self):
         """Load and display stored devices"""
@@ -216,23 +226,30 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage("Error loading devices")
 
     def setup_context_menu(self):
-        """Set up right-click context menu for device table"""
-        self.context_menu = QMenu(self)
-        self.edit_action = self.context_menu.addAction("Edit Device")
-        self.forget_action = self.context_menu.addAction("Forget Device")
-        
-        # Connect actions
-        self.edit_action.triggered.connect(self.edit_selected_device)
-        self.forget_action.triggered.connect(self.forget_selected_device)
-        
-        # Add context menu to table
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_context_menu)
+        
+        self.context_menu = QMenu(self)
+        
+        # Existing actions
+        refresh_action = self.context_menu.addAction("Refresh Device")
+        refresh_action.triggered.connect(self.refresh_selected_device)
+        
+        forget_action = self.context_menu.addAction("Forget Device")
+        forget_action.triggered.connect(self.forget_selected_device)
+
+        # Add separator
+        self.context_menu.addSeparator()
+        
+        # Add packet capture action
+        capture_action = self.context_menu.addAction("Start Packet Capture")
+        capture_action.triggered.connect(self.open_packet_capture)
 
     def show_context_menu(self, position):
-        """Show context menu at cursor position"""
-        if self.table.selectedItems():
-            self.context_menu.exec(self.table.viewport().mapToGlobal(position))
+        selected = len(self.table.selectedItems()) > 0
+        for action in self.context_menu.actions():
+            action.setEnabled(selected)
+        self.context_menu.exec(self.table.viewport().mapToGlobal(position))
 
     def get_selected_device(self):
         """Get selected device data from table"""
@@ -271,3 +288,46 @@ class MainWindow(QMainWindow):
                 self.device_manager.save_devices()
                 self.load_stored_devices()
                 self.status_bar.showMessage("Device forgotten")
+    
+    def update_button_states(self):
+        selected = len(self.table.selectedItems()) > 0
+        self.capture_btn.setEnabled(selected)
+
+    def open_packet_capture(self):
+        selected_row = self.table.currentRow()
+        if selected_row >= 0:
+            device_info = {
+                'mac': self.table.item(selected_row, 0).text(),
+                'ip': self.table.item(selected_row, 1).text(),
+                'name': self.table.item(selected_row, 2).text()
+            }
+            
+            dialog = PacketCaptureDialog(
+                self,
+                device_info,
+                self.packet_capture_manager
+            )
+            dialog.show()
+        # In src/ui/main_window.py
+    
+    def refresh_selected_device(self):
+        """Refresh information for selected device."""
+        selected_row = self.table.currentRow()
+        if selected_row >= 0:
+            mac = self.table.item(selected_row, 0).text()
+            ip = self.table.item(selected_row, 1).text()
+            
+            # Scan single device
+            device = self.scanner.scan_device(ip, mac)
+            
+            if device:
+                # Update table with new info
+                self.table.setItem(selected_row, 1, QTableWidgetItem(device.get('ip', '')))
+                self.table.setItem(selected_row, 2, QTableWidgetItem(device.get('name', '')))
+                self.table.setItem(selected_row, 3, QTableWidgetItem(device.get('vendor', '')))
+                self.table.setItem(selected_row, 4, QTableWidgetItem(device.get('last_seen', '')))
+                self.table.setItem(selected_row, 5, QTableWidgetItem('Yes' if device.get('active') else 'No'))
+                
+                self.status_bar.showMessage(f"Device {mac} refreshed successfully", 3000)
+            else:
+                self.status_bar.showMessage(f"Failed to refresh device {mac}", 3000)
