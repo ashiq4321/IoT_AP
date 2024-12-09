@@ -8,9 +8,10 @@ import pyqtgraph as pg
 from datetime import datetime
 
 class IdsMonitorPanel(QWidget):
-    def __init__(self, ids_manager):
+    def __init__(self, ids_manager, packet_capture_manager):
         super().__init__()
         self.ids_manager = ids_manager
+        self.packet_capture_manager = packet_capture_manager
         self.update_interval = 1000  # 1 second
         
         self.setup_ui()
@@ -141,6 +142,12 @@ class IdsMonitorPanel(QWidget):
 
         menu = QMenu()
         set_threshold = menu.addAction("Set Threshold")
+        
+        # Add stop capture option and check capture status
+        capture_status = self.packet_capture_manager.get_capture_status(mac)
+        if capture_status['running']:
+            stop_capture = menu.addAction("Stop Capture")
+        
         action = menu.exec(self.stats_table.viewport().mapToGlobal(position))
 
         if action == set_threshold:
@@ -154,6 +161,12 @@ class IdsMonitorPanel(QWidget):
             )
             if ok and threshold > 0:
                 self.ids_manager.set_threshold(mac, threshold)
+        
+        elif action == stop_capture:
+            success, msg = self.packet_capture_manager.stop_capture(mac)
+            if not success:
+                QMessageBox.warning(self, "Error", f"Failed to stop capture: {msg}")
+            self.update_display()  # Refresh display after stopping
 
     def create_alert_label(self, mac, current_rate, threshold):
         alert_text = (f"⚠️ Alert for {mac}\n"
