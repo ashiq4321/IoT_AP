@@ -20,7 +20,12 @@ class IdsManager:
         self.data_rates: Dict[str, deque] = {}
         self.rate_history: Dict[str, list] = {}
         self.current_windows: Dict[str, dict] = {}
+        self.device_thresholds = {}  # Store thresholds in memory
+        self.device_alerts = {}  # Track alerts per device
         
+        # Set default threshold for all devices
+        self.default_threshold = 5000  # 5000 B/s
+
         # Load historical data if exists
         self.history_file = "ids_history.json"
         self.load_history()
@@ -39,7 +44,8 @@ class IdsManager:
                 "password": "",
                 "from_addr": "",
                 "to_addr": ""
-            }
+            },
+            "device_thresholds": {}  # Custom thresholds per device
         }
         
         if os.path.exists(self.config_file):
@@ -99,19 +105,31 @@ class IdsManager:
                 'bytes': 0
             }
 
+    def set_device_threshold(self, mac_address: str, threshold: float) -> None:
+        """Set custom threshold for a device in bytes/sec"""
+        self.config['device_thresholds'][mac_address] = threshold
+        self.save_config()
+        
+    def get_device_threshold(self, mac_address: str) -> Optional[float]:
+        """Get custom threshold for a device if set"""
+        return self.config['device_thresholds'].get(mac_address)
+        
     def detect_anomaly(self, mac_address: str, current_rate: float):
-        """Detect abnormal data rates"""
+        """Detect abnormal data rates using device threshold"""
         if len(self.data_rates[mac_address]) < 10:
-            return  # Need more data
+            return
             
-        recent_rates = list(self.data_rates[mac_address])[-60:]  # Last hour
-        avg_rate = statistics.mean(recent_rates)
-        threshold = avg_rate * self.config['threshold_multiplier']
+        threshold = self.device_thresholds.get(mac_address, 
+                   self.config['threshold_multiplier'])
         
         if current_rate > threshold:
-            logger.warning(f"Anomaly detected for {mac_address}: "
-                         f"rate={current_rate:.2f} B/s, avg={avg_rate:.2f} B/s")
-            self.trigger_alert(mac_address, current_rate, avg_rate)
+            self.device_alerts[mac_address] = {
+                'current_rate': current_rate,
+                'threshold': threshold,
+                'timestamp': datetime.now().strftime('%H:%M:%S')
+            }
+        else:
+            self.device_alerts.pop(mac_address, None)
 
     def trigger_alert(self, mac_address: str, current_rate: float, avg_rate: float):
         """Handle anomaly detection alerts"""
@@ -158,3 +176,11 @@ class IdsManager:
             'min_rate': min(samples),
             'samples': len(samples)
         }
+        
+    def set_threshold(self, mac_address: str, threshold: float) -> None:
+        """Set threshold for a device in bytes/sec"""
+        self.device_thresholds[mac_address] = threshold
+        
+    def get_threshold(self, mac_address: str) -> float:
+        """Get threshold for a device, return default if not set"""
+        return self.device_thresholds.get(mac_address, self.default_threshold)
