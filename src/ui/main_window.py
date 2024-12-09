@@ -4,6 +4,7 @@ from tkinter import ttk
 from tkinter import messagebox
 import time
 from datetime import datetime
+from ..ui.ids_monitor import IdsMonitorPanel
 from ..network.device_scanner import DeviceScanner
 from ..network.packet_capture import PacketCaptureManager
 from typing import List, Dict
@@ -85,6 +86,25 @@ class MainWindow:
         self.setup_styles()
         self.setup_ui()
         self.load_stored_devices()
+        
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Create main frame for existing UI
+        self.main_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.main_frame, text="Devices")
+        
+        # Move existing UI elements to main_frame instead of root
+        # Status bar frame
+        self.status_frame = ttk.Frame(self.main_frame)
+        self.status_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        
+        # Table frame 
+        self.table_frame = ttk.Frame(self.main_frame)
+        self.table_frame.pack(fill=tk.BOTH, expand=True)
+        # Add IDS monitoring tab
+        self.ids_monitor = IdsMonitorPanel(self.notebook, self.packet_capture_manager.ids_manager)
+        self.notebook.add(self.ids_monitor, text="IDS Monitor")
       
     def setup_styles(self):
         self.root.configure(bg='#f0f0f0')
@@ -127,7 +147,6 @@ class MainWindow:
     def setup_context_menu(self):
         """Set up the right-click context menu with packet capture option."""
         self.context_menu = tk.Menu(self.root, tearoff=0)
-        self.context_menu.add_command(label="Edit", command=self.edit_selected_device)
         self.context_menu.add_command(label="Packet Capture", command=self.start_packet_capture)
         self.context_menu.add_command(label="Forget", command=self.forget_selected_device)
         self.table.bind('<Button-3>', self.show_context_menu)

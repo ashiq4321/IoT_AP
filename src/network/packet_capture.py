@@ -10,6 +10,7 @@ from datetime import datetime
 import netifaces  # For backup interface detection
 from queue import Queue, Empty
 import threading
+from ..network.ids_manager import IdsManager
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -27,7 +28,8 @@ class PacketCaptureManager:
         self.capture_locks: Dict[str, Lock] = {}
         self.packet_queues: Dict[str, Queue] = {}
         self.save_threads: Dict[str, Thread] = {}
-
+        self.ids_manager = IdsManager()
+        
     def _find_hotspot_interface(self) -> Optional[tuple]:
         """Find the Wi-Fi Direct Virtual Adapter interface.
         Returns tuple of (interface_name, interface_index)"""
@@ -132,7 +134,12 @@ class PacketCaptureManager:
                     if not self.stop_events[mac_address].is_set() and not self.pause_events[mac_address].is_set():
                         packet_buffer.append(packet)
                         packet_counter += 1
-
+                        # Update IDS with packet size
+                        self.ids_manager.update_data_rate(
+                            mac_address,
+                            len(packet),
+                            time.time()
+                        )
                         # Buffer packets and save periodically
                         current_time = time.time()
                         if len(packet_buffer) >= 100 or (current_time - last_save) >= 5:
@@ -283,3 +290,4 @@ class PacketCaptureManager:
         """Stop all active captures and cleanup resources."""
         for device_mac in list(self.capture_threads.keys()):
             self.stop_capture(device_mac)
+        self.ids_manager.save_history()

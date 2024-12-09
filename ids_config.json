@@ -1,0 +1,14 @@
+{
+    "threshold_multiplier": 2.0,
+    "window_size": 5,
+    "history_days": 7,
+    "email_notifications": {
+        "enabled": false,
+        "smtp_server": "",
+        "smtp_port": 587,
+        "username": "",
+        "password": "",
+        "from_addr": "",
+        "to_addr": ""
+    }
+}
