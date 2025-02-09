@@ -1,16 +1,5 @@
 # Network Device Management and Monitoring System
 
-## INSE 6170: Network Security Architecture and Management  
-**Concordia Institute for Information Systems Engineering**  
-**Concordia University, Montreal, Canada**  
-**Fall 2024**  
-
-### Author:
-**Name:** Ashiqul Hoque Chowdhury  
-**ID:** 40228852  
-
----
-
 ## Project Overview
 The Network Device Management and Monitoring System is a comprehensive application designed to manage, monitor, and analyze network devices connected to a Windows Mobile Hotspot. The application provides functionalities for scanning the network, managing device information, monitoring network traffic, and capturing network packets. It features a user-friendly graphical interface built with **PyQt6**, making it accessible for users to interact with and manage their network devices efficiently.
 
