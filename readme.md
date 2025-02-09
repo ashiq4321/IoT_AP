@@ -14,6 +14,7 @@ The Network Device Management and Monitoring System is a comprehensive applicati
 - Remove devices that are no longer needed.
 - Retrieve stored information for specific devices.
 - Merge new scan data with existing device information.
+  ![image alt](https://github.com/ashiq4321/IoT_AP/blob/7ae1a9713788c76d8ee6e7211b4a68ea1134dbeb/docs/device%20management.png)
 
 ### Network Scanning
 - Check if the Windows Mobile Hotspot is active and retrieve its IP address.
@@ -24,12 +25,15 @@ The Network Device Management and Monitoring System is a comprehensive applicati
 - **Device Table:** Displays device details such as name, IP address, MAC address, vendor, model, status, and last seen time.
 - **Context Menu:** Options to refresh device information, forget devices, and start packet capture.
 - **Device Editor:** Dialog for editing device details.
+  ![image alt](https://github.com/ashiq4321/IoT_AP/blob/7ae1a9713788c76d8ee6e7211b4a68ea1134dbeb/docs/edit%20device%20information.png)
 - **Packet Capture Dialog:** Interface for configuring and starting packet captures.
 - **IDS Monitor Panel:** Monitors network traffic and sets thresholds for data rates.
+![image alt](https://github.com/ashiq4321/IoT_AP/blob/7ae1a9713788c76d8ee6e7211b4a68ea1134dbeb/docs/packet%20capturing%20dialog.png)
 
 ### Intrusion Detection System (IDS)
 - Monitor network traffic and track data rates for devices.
 - Configure data rate thresholds for individual devices and receive alerts for threshold breaches.
+![image alt](https://github.com/ashiq4321/IoT_AP/blob/7ae1a9713788c76d8ee6e7211b4a68ea1134dbeb/docs/data%20consumption%20exceeds%20the%20threshold.png)
 
 ### Packet Capture
 - Start and stop packet captures for network traffic analysis.
@@ -76,3 +80,19 @@ Contains the virtual environment with all dependencies required for the project.
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+2. **Install Dependencies**
+   ```bash
+   pip install -r requirements.txt
+3. **Run the Application**
+   ```bash
+   python main.py
+
+## Future Enhancements
+Enhanced Security: Implement additional security measures for network monitoring and device management.
+Advanced Analytics: Integrate advanced analytics for network traffic and device behavior.
+Cross-Platform Support: Extend support to other operating systems beyond Windows.
+User Authentication: Add user authentication and role-based access control.
+
+
+
+
